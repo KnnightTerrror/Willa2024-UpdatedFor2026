@@ -10,7 +10,7 @@ Based on [Jagwires7443/Willa](https://github.com/Jagwires7443/Willa).
 | WPILib / GradleRIO | 2024.3.2 | 2026.2.1 (Gradle 8.11) |
 | REVLib | 2024.2.4 | 2026.0.5 |
 | navX | NavX 2024.1.0 (Kauai Labs) | Studica 2026.0.0 |
-| PathPlannerLib | 2024.2.8 | 2026.1.2 |
+| PathPlannerLib | 2024.2.8 | removed (no autos used it) |
 | CTRE Phoenix 5 / 6 | 5.33.1 / 24.2.0 | removed (not used by this robot) |
 
 Use the **2026 WPILib VS Code** to build and deploy.  Use "WPILib: Manage Vendor Libraries" → "Check for updates (online)" to pick up any newer vendor library releases.
@@ -21,7 +21,7 @@ Use the **2026 WPILib VS Code** to build and deploy.  Use "WPILib: Manage Vendor
 * **navX.**  The navX library is now distributed by Studica: `studica::AHRS` (`<studica/AHRS.h>`), constructed with `NavXComType::kMXP_SPI`.
 * **WPILib command-based controllers.**  `CommandXboxController`/`CommandGenericHID` no longer derive from `GenericHID`, so the `JoystickButton`/`POVButton` bindings now use `m_xbox.Start()`, `m_xbox.Back()`, `m_xbox.POVUp()`, `m_xbox.POVDown()`, and the button board's lights/axis counts use `m_buttonBoard.GetHID()`.
 * **WPILib deprecations.**  `SwerveModuleState::Optimize()` (now an instance method), `CommandPtr::Schedule()` (now `CommandScheduler::GetInstance().Schedule()`), and the SysId `Config` constructor were updated.
-* **PathPlanner.**  The 2024 `AutoBuilder::configureHolonomic()` (which was commented out) no longer exists.  The drive subsystem now calls the 2026 `AutoBuilder::configure()`, using the robot configuration from the PathPlanner GUI (`src/main/deploy/pathplanner/settings.json`).  If that file is missing, a message is printed and everything else works normally.  The existing timed autos (button board button 9 selects Left/Right) are unchanged.
+* **PathPlanner.**  Removed.  The 2024 PathPlanner setup was already commented out and no autos used it; the timed autos (button board button 9 selects Left/Right) are unchanged.  To add PathPlanner back, install PathplannerLib 2026 with "WPILib: Manage Vendor Libraries" (this needs an internet connection that can reach `3015rangerrobotics.github.io`), then call `AutoBuilder::configure()` from the drive subsystem; `DriveSubsystem::GetSpeed()`, `Drive(ChassisSpeeds)`, `GetPose()` and `ResetOdometry()` provide what it needs.
 * **Test Mode config burning.**  `RobotContainer::TestExit()` is called on entry to every mode; it now only does its work (including saving motor controller config to flash) if Test Mode actually ran.  Before, it tried to burn flash at the start of every Autonomous and Teleop.  REVLib 2026 refuses to do that while enabled.
 
 ## Before running on the robot
@@ -30,7 +30,6 @@ Use the **2026 WPILib VS Code** to build and deploy.  Use "WPILib: Manage Vendor
 2. Update the navX firmware if Studica's tools say it is out of date.
 3. Run Test Mode once, then disable, so the motor controller configs are saved to flash.
 4. Check that field-oriented drive and the swerve module/arm directions are still correct, before driving at speed.
-5. To use PathPlanner autos, open the project in the 2026 PathPlanner GUI, set up the robot config, and deploy (this creates `src/main/deploy/pathplanner/`).  The PathPlanner PID constants (`pidf::kPath*` in `Constants.h`) are starting values and need to be tuned.
 
 ## Features
 

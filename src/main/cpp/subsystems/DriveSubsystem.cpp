@@ -25,28 +25,18 @@
 #include <networktables/NetworkTableInstance.h>
 #include <networktables/NetworkTableValue.h>
 #include <wpi/array.h>
-#include <pathplanner/lib/auto/AutoBuilder.h>
-#include <pathplanner/lib/config/PIDConstants.h>
-#include <pathplanner/lib/config/RobotConfig.h>
-#include <pathplanner/lib/controllers/PPHolonomicDriveController.h>
-#include <pathplanner/lib/util/DriveFeedforwards.h>
-#include <frc/DriverStation.h>
 #include <frc/geometry/Pose2d.h>
 #include <frc/kinematics/ChassisSpeeds.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <exception>
-#include <memory>
 #include <regex>
 #include <span>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
-
-using namespace pathplanner;
 
 DriveSubsystem::DriveSubsystem() noexcept
 {
@@ -137,59 +127,6 @@ DriveSubsystem::DriveSubsystem() noexcept
   // Initial position (third parameter) defaulted to "frc::Pose2d()"; initial
   // angle (second parameter) is automatically zeroed by navX initialization.
   m_odometry = std::make_unique<frc::SwerveDriveOdometry<4>>(kDriveKinematics, GetHeading(), GetModulePositions());
-
-  ConfigureAutoBuilder();
-}
-
-// PathPlanner (2025 and later) reads the robot's physical configuration
-// (mass, MOI, module locations, wheel/gearing, etc.) from the settings file
-// written by the PathPlanner GUI; deploy/pathplanner/settings.json.  If this
-// does not exist (or is bad), PathPlanner autos are not available, but
-// everything else works normally.
-void DriveSubsystem::ConfigureAutoBuilder() noexcept
-{
-  try
-  {
-    pathplanner::RobotConfig config = pathplanner::RobotConfig::fromGUISettings();
-
-    AutoBuilder::configure(
-        [this]() -> frc::Pose2d
-        { return GetPose(); }, // Robot pose supplier
-        [this](const frc::Pose2d &pose) -> void
-        { ResetOdometry(pose); }, // Method to reset odometry (will be called if your auto has a starting pose)
-        [this]() -> frc::ChassisSpeeds
-        { return GetSpeed(); }, // ChassisSpeeds supplier; MUST BE ROBOT RELATIVE
-        [this](const frc::ChassisSpeeds &speeds, const pathplanner::DriveFeedforwards &) -> void
-        { Drive(speeds); }, // Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds
-        std::make_shared<pathplanner::PPHolonomicDriveController>(
-            pathplanner::PIDConstants(pidf::kPathTranslationP, pidf::kPathTranslationI, pidf::kPathTranslationD), // Translation PID constants
-            pathplanner::PIDConstants(pidf::kPathRotationP, pidf::kPathRotationI, pidf::kPathRotationD)),          // Rotation PID constants
-        config, // The robot configuration
-        []() -> bool
-        {
-          // Boolean supplier that controls when the path will be mirrored for
-          // the red alliance.  This will flip the path being followed to the
-          // red side of the field.  THE ORIGIN WILL REMAIN ON THE BLUE SIDE.
-          const auto alliance = frc::DriverStation::GetAlliance();
-
-          if (alliance)
-          {
-            return alliance.value() == frc::DriverStation::Alliance::kRed;
-          }
-
-          return false;
-        },
-        this // Reference to this subsystem to set requirements
-    );
-  }
-  catch (const std::exception &e)
-  {
-    std::printf("PathPlanner AutoBuilder not configured: %s.\n", e.what());
-  }
-  catch (...)
-  {
-    std::printf("PathPlanner AutoBuilder not configured: unknown exception.\n");
-  }
 }
 
 std::array<frc::SwerveModulePosition, 4> DriveSubsystem::GetModulePositions() noexcept

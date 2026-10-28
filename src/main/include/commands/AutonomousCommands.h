@@ -10,8 +10,6 @@
 #include <frc2/command/CommandScheduler.h>
 #include <frc/RobotController.h>
 #include <frc/trajectory/Trajectory.h>
-#include <pathplanner/lib/commands/PathPlannerAuto.h>
-#include <pathplanner/lib/auto/AutoBuilder.h>
 #include "subsystems/DriveSubsystem.h"
 #include "subsystems/ArmSubsystem.h"
 #include "subsystems/Infrastructure.h"

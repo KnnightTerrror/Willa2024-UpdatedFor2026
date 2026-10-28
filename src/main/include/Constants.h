@@ -124,16 +124,6 @@ namespace pidf
     constexpr double kDriveThetaF = 0.005;
     constexpr double kDriveThetaI = 0.0;
     constexpr double kDriveThetaD = 0.0;
-
-    // PathPlanner path following (PPHolonomicDriveController).  These are
-    // PathPlanner's suggested starting values (meters and radians); they need
-    // to be tuned on the robot.
-    constexpr double kPathTranslationP = 5.0;
-    constexpr double kPathTranslationI = 0.0;
-    constexpr double kPathTranslationD = 0.0;
-    constexpr double kPathRotationP = 5.0;
-    constexpr double kPathRotationI = 0.0;
-    constexpr double kPathRotationD = 0.0;
 }
 namespace nonDrive
 {

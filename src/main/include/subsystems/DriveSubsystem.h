@@ -101,10 +101,10 @@ public:
              units::meters_per_second_t ySpeed, units::radians_per_second_t rot,
              bool fieldRelative, units::meter_t x_center, units::meter_t y_center) noexcept;
 
-  // Drive with robot-relative speeds (used by PathPlanner).
+  // Drive with robot-relative speeds.
   void Drive(const frc::ChassisSpeeds &speeds) noexcept;
 
-  // Robot-relative speeds (used by PathPlanner).
+  // Robot-relative speeds.
   frc::ChassisSpeeds GetSpeed() noexcept;
 
   /**
@@ -197,9 +197,6 @@ public:
 
 private:
   void DoSafeIMU(const char *const what, std::function<void()> work) noexcept;
-
-  // Set up PathPlanner (needs deploy/pathplanner/settings.json).
-  void ConfigureAutoBuilder() noexcept;
 
   // Test mode method to create graph tab for characterization.
   void CreateGraphTab(SwerveModule::GraphSelection graphSelection) noexcept;

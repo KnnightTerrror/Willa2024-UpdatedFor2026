@@ -16,7 +16,6 @@
 #include <frc2/command/InstantCommand.h>
 #include <frc2/command/RunCommand.h>
 
-// #include <pathplanner/lib/auto/NamedCommands.h>
 #include <memory>
 #include <cmath>
 #include <cstdio>
@@ -324,12 +323,8 @@ void RobotContainer::ConfigureBindings() noexcept
                                          .ToPtr());
 }
 
-using namespace pathplanner;
-
 std::optional<frc2::CommandPtr> RobotContainer::GetAutonomousCommand() noexcept
 {
-  // return PathPlannerAuto("autotest1").ToPtr();
-
   if (m_buttonBoard.GetHID().GetRawButton(9))
   {
     return LeftSide::LeftSideCommandFactory(&m_driveSubsystem, &arm_, &IntakeSubsystem_);

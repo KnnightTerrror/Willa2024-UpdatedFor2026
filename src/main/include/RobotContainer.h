@@ -19,7 +19,6 @@
 #include <memory>
 #include <tuple>
 // #include <frc/DriverStation.h>
-#include <pathplanner/lib/commands/PathPlannerAuto.h>
 
 /**
  * This class is where the bulk of the robot should be declared.  Since
