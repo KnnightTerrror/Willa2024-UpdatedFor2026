@@ -66,7 +66,7 @@ void Robot::AutonomousInit() noexcept
 
   if (m_autonomousCommand)
   {
-    m_autonomousCommand->Schedule();
+    frc2::CommandScheduler::GetInstance().Schedule(*m_autonomousCommand);
   }
 
   m_container.AutonomousInit();

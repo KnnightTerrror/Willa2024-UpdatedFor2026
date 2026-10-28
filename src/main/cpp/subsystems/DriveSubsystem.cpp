@@ -26,16 +26,19 @@
 #include <networktables/NetworkTableValue.h>
 #include <wpi/array.h>
 #include <pathplanner/lib/auto/AutoBuilder.h>
-#include <pathplanner/lib/util/HolonomicPathFollowerConfig.h>
-#include <pathplanner/lib/util/PIDConstants.h>
-#include <pathplanner/lib/util/ReplanningConfig.h>
+#include <pathplanner/lib/config/PIDConstants.h>
+#include <pathplanner/lib/config/RobotConfig.h>
+#include <pathplanner/lib/controllers/PPHolonomicDriveController.h>
+#include <pathplanner/lib/util/DriveFeedforwards.h>
+#include <frc/DriverStation.h>
 #include <frc/geometry/Pose2d.h>
 #include <frc/kinematics/ChassisSpeeds.h>
-//#include <frc/DriverStation.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <exception>
+#include <memory>
 #include <regex>
 #include <span>
 #include <string>
@@ -57,7 +60,7 @@ DriveSubsystem::DriveSubsystem() noexcept
   // is very clear when this is occurring.
   DoSafeIMU("ctor", [&]() -> void
             {
-    m_ahrs = std::make_unique<AHRS>(frc::SPI::Port::kMXP);
+    m_ahrs = std::make_unique<studica::AHRS>(studica::AHRS::NavXComType::kMXP_SPI);
 
     if (!m_ahrs)
     {
@@ -134,29 +137,59 @@ DriveSubsystem::DriveSubsystem() noexcept
   // Initial position (third parameter) defaulted to "frc::Pose2d()"; initial
   // angle (second parameter) is automatically zeroed by navX initialization.
   m_odometry = std::make_unique<frc::SwerveDriveOdometry<4>>(kDriveKinematics, GetHeading(), GetModulePositions());
-/*
-  AutoBuilder::configureHolonomic(
-      [this](){return GetPose();}, // Robot pose supplier
-      [this](frc::Pose2d pose){ ResetOdometry(pose); }, // Method to reset odometry (will be called if your auto has a starting pose)
-      [this](){ return GetSpeed(); }, // ChassisSpeeds supplier. MUST BE ROBOT RELATIVE
-      [this](frc::ChassisSpeeds speeds){ Drive(speeds); },                // Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds
-      HolonomicPathFollowerConfig(       // HolonomicPathFollowerConfig, this should likely live in your Constants class
-          PIDConstants(0.004, 0.0, 0.0), // Translation PID constants
-          PIDConstants(0.006, 0.0, 0.0), // Rotation PID constants
-          3.68808_mps,                   // Max module speed, in m/s
-          0.4_m,                         // Drive base radius in meters. Distance from robot center to furthest module.
-          ReplanningConfig()             // Default path replanning config. See the API for the options here
-          ),
-      []() {
-        auto alliance = DriverStation::GetAlliance();
-            if (alliance) {
-                return alliance.value() == DriverStation::Alliance::kRed;
-            }
-        return false;
-      },
-      this // Reference to this subsystem to set requirements
-  );
-  */
+
+  ConfigureAutoBuilder();
+}
+
+// PathPlanner (2025 and later) reads the robot's physical configuration
+// (mass, MOI, module locations, wheel/gearing, etc.) from the settings file
+// written by the PathPlanner GUI; deploy/pathplanner/settings.json.  If this
+// does not exist (or is bad), PathPlanner autos are not available, but
+// everything else works normally.
+void DriveSubsystem::ConfigureAutoBuilder() noexcept
+{
+  try
+  {
+    pathplanner::RobotConfig config = pathplanner::RobotConfig::fromGUISettings();
+
+    AutoBuilder::configure(
+        [this]() -> frc::Pose2d
+        { return GetPose(); }, // Robot pose supplier
+        [this](const frc::Pose2d &pose) -> void
+        { ResetOdometry(pose); }, // Method to reset odometry (will be called if your auto has a starting pose)
+        [this]() -> frc::ChassisSpeeds
+        { return GetSpeed(); }, // ChassisSpeeds supplier; MUST BE ROBOT RELATIVE
+        [this](const frc::ChassisSpeeds &speeds, const pathplanner::DriveFeedforwards &) -> void
+        { Drive(speeds); }, // Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds
+        std::make_shared<pathplanner::PPHolonomicDriveController>(
+            pathplanner::PIDConstants(pidf::kPathTranslationP, pidf::kPathTranslationI, pidf::kPathTranslationD), // Translation PID constants
+            pathplanner::PIDConstants(pidf::kPathRotationP, pidf::kPathRotationI, pidf::kPathRotationD)),          // Rotation PID constants
+        config, // The robot configuration
+        []() -> bool
+        {
+          // Boolean supplier that controls when the path will be mirrored for
+          // the red alliance.  This will flip the path being followed to the
+          // red side of the field.  THE ORIGIN WILL REMAIN ON THE BLUE SIDE.
+          const auto alliance = frc::DriverStation::GetAlliance();
+
+          if (alliance)
+          {
+            return alliance.value() == frc::DriverStation::Alliance::kRed;
+          }
+
+          return false;
+        },
+        this // Reference to this subsystem to set requirements
+    );
+  }
+  catch (const std::exception &e)
+  {
+    std::printf("PathPlanner AutoBuilder not configured: %s.\n", e.what());
+  }
+  catch (...)
+  {
+    std::printf("PathPlanner AutoBuilder not configured: unknown exception.\n");
+  }
 }
 
 std::array<frc::SwerveModulePosition, 4> DriveSubsystem::GetModulePositions() noexcept
@@ -250,8 +283,11 @@ std::pair<double, double> DriveSubsystem::GetTilt() noexcept
 
   DoSafeIMU("GetPitch()/GetRoll()", [&]() -> void
             {
-    x = m_ahrs->GetPitch();
-    y = m_ahrs->GetRoll(); });
+    if (m_ahrs)
+    {
+      x = m_ahrs->GetPitch();
+      y = m_ahrs->GetRoll();
+    } });
 
   return std::make_pair(x, y);
 }
@@ -818,7 +854,7 @@ void DriveSubsystem::TestPeriodic() noexcept
 
     if (m_command)
     {
-      m_command->Schedule();
+      frc2::CommandScheduler::GetInstance().Schedule(*m_command);
     }
   }
 }
@@ -1061,12 +1097,12 @@ void DriveSubsystem::Drive(units::meters_per_second_t xSpeed,
   SetModuleStates(states);
 }
 
-void DriveSubsystem::Drive(frc::ChassisSpeeds speeds)
+void DriveSubsystem::Drive(const frc::ChassisSpeeds &speeds) noexcept
 {
-  Drive(speeds.vx,speeds.vy,speeds.omega,false);
+  Drive(speeds.vx, speeds.vy, speeds.omega, false);
 }
 
-frc::ChassisSpeeds DriveSubsystem::GetSpeed()
+frc::ChassisSpeeds DriveSubsystem::GetSpeed() noexcept
 {
   return kDriveKinematics.ToChassisSpeeds(
     {

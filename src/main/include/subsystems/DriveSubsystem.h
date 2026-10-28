@@ -7,11 +7,11 @@
 #include "Constants.h"
 #include "infrastructure/SwerveModule.h"
 
-#include <AHRS.h>
 #include <frc/controller/ProfiledPIDController.h>
 #include <frc/geometry/Pose2d.h>
 #include <frc/geometry/Rotation2d.h>
 #include <frc/geometry/Translation2d.h>
+#include <frc/kinematics/ChassisSpeeds.h>
 #include <frc/kinematics/SwerveDriveKinematics.h>
 #include <frc/kinematics/SwerveDriveOdometry.h>
 #include <frc/kinematics/SwerveModulePosition.h>
@@ -20,6 +20,7 @@
 #include <frc/shuffleboard/SimpleWidget.h>
 #include <frc/smartdashboard/SendableChooser.h>
 #include <frc/sysid/SysIdRoutineLog.h>
+#include <studica/AHRS.h>
 #include <frc2/command/CommandPtr.h>
 #include <frc2/command/SubsystemBase.h>
 #include <units/angle.h>
@@ -100,13 +101,11 @@ public:
              units::meters_per_second_t ySpeed, units::radians_per_second_t rot,
              bool fieldRelative, units::meter_t x_center, units::meter_t y_center) noexcept;
 
-  void Drive(frc::ChassisSpeeds speeds);
+  // Drive with robot-relative speeds (used by PathPlanner).
+  void Drive(const frc::ChassisSpeeds &speeds) noexcept;
 
-  frc::ChassisSpeeds GetSpeed();
-
-
-
-
+  // Robot-relative speeds (used by PathPlanner).
+  frc::ChassisSpeeds GetSpeed() noexcept;
 
   /**
    * Resets the drive encoder to zero, and the turning encoder based on the
@@ -199,6 +198,9 @@ public:
 private:
   void DoSafeIMU(const char *const what, std::function<void()> work) noexcept;
 
+  // Set up PathPlanner (needs deploy/pathplanner/settings.json).
+  void ConfigureAutoBuilder() noexcept;
+
   // Test mode method to create graph tab for characterization.
   void CreateGraphTab(SwerveModule::GraphSelection graphSelection) noexcept;
   void UpdateGraphTab(SwerveModule::GraphSelection graphSelection) noexcept;
@@ -207,7 +209,7 @@ private:
   wpi::log::StringLogEntry m_stringLog;
 
   // The gyro sensor.
-  std::unique_ptr<AHRS> m_ahrs;
+  std::unique_ptr<studica::AHRS> m_ahrs;
 
   // Theta controller (for keeping steady heading, or for rotating drive base).
   std::unique_ptr<frc::ProfiledPIDController<units::angle::degrees>> m_orientationController;
@@ -304,4 +306,3 @@ private:
   std::string m_rearRightGraphScroll;
 };
 
-// class Autobuilder

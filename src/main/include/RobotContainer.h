@@ -60,6 +60,7 @@ private:
 
   void ConfigureBindings() noexcept;
 
+  bool m_testMode{false};
   bool m_fieldOriented{false};
   bool m_lock{false};
   bool m_slow{false};

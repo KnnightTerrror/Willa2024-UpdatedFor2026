@@ -441,7 +441,7 @@ void SwerveModule::SetDesiredState(const frc::SwerveModuleState &referenceState)
     if (position.has_value())
     {
         m_turningPosition = position.value();
-        state = frc::SwerveModuleState::Optimize(referenceState, frc::Rotation2d(m_turningPosition));
+        state.Optimize(frc::Rotation2d(m_turningPosition));
     }
 
     SetTurningPosition(state.angle.Degrees());
