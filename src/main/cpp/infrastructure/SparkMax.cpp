@@ -162,6 +162,9 @@ namespace
         // Current configuration verification status.
         bool configGood_{false};
 
+        // Config has been saved to flash (at least once since startup).
+        bool persisted_{false};
+
         // Current idle mode (there is no cheap way to read this back).
         IdleMode idleMode_{IdleMode::kBrake};
 
@@ -698,26 +701,39 @@ void SparkMotor::Configure(const bool burn) noexcept
         std::printf("SparkMax[%i] %s config: %s.\n", canId_, name_.c_str(), configReporting_.c_str());
     }
 
-    // When burning, first reset all parameters to their factory defaults, so
-    // that only the managed parameters differ from the defaults.
-    const rev::ResetMode resetMode = burn ? rev::ResetMode::kResetSafeParameters : rev::ResetMode::kNoResetSafeParameters;
-    const rev::PersistMode persistMode = burn ? rev::PersistMode::kPersistParameters : rev::PersistMode::kNoPersistParameters;
+    // Always reset all parameters to their factory defaults first, so that
+    // only the managed parameters differ from the defaults.  This clears out
+    // anything left on the controller by other code (inversion, follower
+    // mode, current limits, etc.), which could otherwise make motors run
+    // unexpectedly.  The first time the config is applied (at startup, when
+    // the robot is disabled), it is also saved to flash, so the controller
+    // comes back up correctly configured after a brownout or power cycle;
+    // this is what REV recommends.  Otherwise, only save when asked.
+    const bool persist = burn || !persisted_;
+    const rev::ResetMode resetMode = rev::ResetMode::kResetSafeParameters;
+    const rev::PersistMode persistMode = persist ? rev::PersistMode::kPersistParameters : rev::PersistMode::kNoPersistParameters;
 
     DoSafely("Configure", [&]() -> void
              {
         if (AnyError(motor_->Configure(*sparkConfig, resetMode, persistMode)))
         {
-            std::printf("SparkMax[%i] %s %s config: FAIL (%i)!\n", canId_, name_.c_str(), burn ? "burn" : "apply", lastError_);
+            std::printf("SparkMax[%i] %s %s config: FAIL (%i)!\n", canId_, name_.c_str(), persist ? "burn" : "apply", lastError_);
 
-            return;
+            // Saving to flash is refused while the robot is enabled; make
+            // sure the config is at least applied.
+            if (!persist || AnyError(motor_->Configure(*sparkConfig, resetMode, rev::PersistMode::kNoPersistParameters)))
+            {
+                return;
+            }
+        }
+        else if (persist)
+        {
+            persisted_ = true;
+
+            std::printf("SparkMax[%i] %s burn config: OK.\n", canId_, name_.c_str());
         }
 
-        configGood_ = configReporting_.empty();
-
-        if (burn)
-        {
-            std::printf("SparkMax[%i] %s burn config: OK.\n", canId_, name_.c_str());
-        } });
+        configGood_ = configReporting_.empty(); });
 }
 
 void SparkMotor::ClearFaults() noexcept

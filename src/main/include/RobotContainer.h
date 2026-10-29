@@ -59,7 +59,11 @@ private:
 
   void ConfigureBindings() noexcept;
 
+  static constexpr const char *kSaveSwerveOffsetsKey = "Swerve/Save Offsets";
+
   bool m_testMode{false};
+  uint64_t m_calibrateHeldSince{0};
+  bool m_calibrateDone{false};
   bool m_fieldOriented{false};
   bool m_lock{false};
   bool m_slow{false};

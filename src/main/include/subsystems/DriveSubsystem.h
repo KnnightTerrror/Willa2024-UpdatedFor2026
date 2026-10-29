@@ -67,6 +67,14 @@ public:
   // Obtain status of the overall swerve drive subsystem.
   bool GetStatus() const noexcept;
 
+  // Swerve module alignment (offset) calibration.  With the robot disabled
+  // and all four wheels pointed straight forward, this works out the
+  // absolute encoder alignment offsets that make the current position zero,
+  // applies them, prints them (for Constants.h), and saves them on the
+  // roboRIO so they are used from then on.  Returns false (and changes
+  // nothing) if any absolute encoder is not working.
+  bool CalibrateAlignmentOffsets() noexcept;
+
   // Test or simple autonomous (no motion planning) oriented methods;
   // note that these return false until the requested action has completed.
   void ResetDrive() noexcept;                                              // Zero drive distance
@@ -197,6 +205,12 @@ public:
 
 private:
   void DoSafeIMU(const char *const what, std::function<void()> work) noexcept;
+
+  // Use alignment offsets saved by CalibrateAlignmentOffsets(), if any.
+  void LoadAlignmentOffsets() noexcept;
+
+  // Send swerve module information to the dashboard (SmartDashboard/Swerve).
+  void PublishSwerveTelemetry() noexcept;
 
   // Test mode method to create graph tab for characterization.
   void CreateGraphTab(SwerveModule::GraphSelection graphSelection) noexcept;

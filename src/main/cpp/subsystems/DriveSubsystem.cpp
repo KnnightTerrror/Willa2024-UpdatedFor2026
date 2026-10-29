@@ -13,12 +13,14 @@
 #include "infrastructure/SwerveModule.h"
 
 #include <frc/DataLogManager.h>
+#include <frc/Filesystem.h>
 #include <frc/shuffleboard/BuiltInWidgets.h>
 #include <frc/shuffleboard/Shuffleboard.h>
 #include <frc/shuffleboard/ShuffleboardContainer.h>
 #include <frc/shuffleboard/ShuffleboardLayout.h>
 #include <frc/shuffleboard/ShuffleboardTab.h>
 #include <frc/shuffleboard/SimpleWidget.h>
+#include <frc/smartdashboard/SmartDashboard.h>
 #include <frc2/command/Command.h>
 #include <frc2/command/CommandScheduler.h>
 #include <networktables/NetworkTableEntry.h>
@@ -31,6 +33,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <fstream>
 #include <regex>
 #include <span>
 #include <string>
@@ -126,6 +130,9 @@ DriveSubsystem::DriveSubsystem() noexcept
 
   // Initial position (third parameter) defaulted to "frc::Pose2d()"; initial
   // angle (second parameter) is automatically zeroed by navX initialization.
+  // Use calibrated alignment offsets, if these have been saved.
+  LoadAlignmentOffsets();
+
   m_odometry = std::make_unique<frc::SwerveDriveOdometry<4>>(kDriveKinematics, GetHeading(), GetModulePositions());
 }
 
@@ -158,12 +165,151 @@ void DriveSubsystem::DoSafeIMU(const char *const what, std::function<void()> wor
   }
 }
 
+namespace
+{
+  // Alignment offsets saved by CalibrateAlignmentOffsets(); this is in
+  // /home/lvuser on the roboRIO, so it is not touched by deploying code.
+  std::string AlignmentOffsetsPath() noexcept
+  {
+    return frc::filesystem::GetOperatingDirectory() + "/swerve_offsets.txt";
+  }
+
+  // Alignment offsets are on the [-2048, +2048) "count" scale.
+  int NormalizeAlignment(int alignment) noexcept
+  {
+    while (alignment >= 2048)
+    {
+      alignment -= 4096;
+    }
+    while (alignment < -2048)
+    {
+      alignment += 4096;
+    }
+
+    return alignment;
+  }
+}
+
+void DriveSubsystem::LoadAlignmentOffsets() noexcept
+{
+  std::ifstream file(AlignmentOffsetsPath());
+  int frontLeft{0};
+  int frontRight{0};
+  int rearLeft{0};
+  int rearRight{0};
+
+  if (!(file >> frontLeft >> frontRight >> rearLeft >> rearRight) ||
+      frontLeft != NormalizeAlignment(frontLeft) ||
+      frontRight != NormalizeAlignment(frontRight) ||
+      rearLeft != NormalizeAlignment(rearLeft) ||
+      rearRight != NormalizeAlignment(rearRight))
+  {
+    std::printf("Swerve alignment offsets: using Constants.h (FL %+i, FR %+i, RL %+i, RR %+i).\n",
+                m_frontLeftSwerveModule->GetAlignment(),
+                m_frontRightSwerveModule->GetAlignment(),
+                m_rearLeftSwerveModule->GetAlignment(),
+                m_rearRightSwerveModule->GetAlignment());
+
+    return;
+  }
+
+  m_frontLeftSwerveModule->SetAlignment(frontLeft);
+  m_frontRightSwerveModule->SetAlignment(frontRight);
+  m_rearLeftSwerveModule->SetAlignment(rearLeft);
+  m_rearRightSwerveModule->SetAlignment(rearRight);
+
+  std::printf("Swerve alignment offsets: using saved calibration from %s (FL %+i, FR %+i, RL %+i, RR %+i).\n",
+              AlignmentOffsetsPath().c_str(), frontLeft, frontRight, rearLeft, rearRight);
+}
+
+bool DriveSubsystem::CalibrateAlignmentOffsets() noexcept
+{
+  const std::array<SwerveModule *, 4> modules{
+      m_frontLeftSwerveModule.get(),
+      m_frontRightSwerveModule.get(),
+      m_rearLeftSwerveModule.get(),
+      m_rearRightSwerveModule.get()};
+  const std::array<const char *, 4> names{"Front Left", "Front Right", "Rear Left", "Rear Right"};
+  std::array<int, 4> offsets{0, 0, 0, 0};
+
+  // First, make sure all four absolute encoders are working.
+  for (std::size_t i = 0; i < modules.size(); ++i)
+  {
+    const std::optional<int> raw = modules[i]->GetRawAbsolutePosition();
+
+    if (!raw.has_value())
+    {
+      std::printf("**** Swerve calibration FAILED: %s absolute encoder is not working; nothing was changed.\n", names[i]);
+      frc::SmartDashboard::PutString("Swerve/Calibration", std::string("FAILED: ") + names[i] + " encoder not working");
+
+      return false;
+    }
+
+    // Work out new alignment so the current position becomes zero.
+    offsets[i] = NormalizeAlignment(-raw.value());
+  }
+
+  for (std::size_t i = 0; i < modules.size(); ++i)
+  {
+    modules[i]->SetAlignment(offsets[i]);
+  }
+
+  std::ofstream file(AlignmentOffsetsPath(), std::ios::trunc);
+
+  file << offsets[0] << ' ' << offsets[1] << ' ' << offsets[2] << ' ' << offsets[3] << '\n';
+  file.close();
+
+  const bool saved = !file.fail();
+
+  std::printf("**** Swerve calibration: offsets applied%s.  To make these the defaults, put these in Constants.h:\n"
+              "    constexpr int kFrontLeftAlignmentOffset = %+i;\n"
+              "    constexpr int kFrontRightAlignmentOffset = %+i;\n"
+              "    constexpr int kRearLeftAlignmentOffset = %+i;\n"
+              "    constexpr int kRearRightAlignmentOffset = %+i;\n",
+              saved ? " and saved on the roboRIO" : " (but could NOT be saved on the roboRIO)",
+              offsets[0], offsets[1], offsets[2], offsets[3]);
+
+  char status[128];
+  std::snprintf(status, sizeof(status), "%s: FL %+i, FR %+i, RL %+i, RR %+i",
+                saved ? "Saved" : "Applied (not saved)", offsets[0], offsets[1], offsets[2], offsets[3]);
+  frc::SmartDashboard::PutString("Swerve/Calibration", status);
+
+  return true;
+}
+
+void DriveSubsystem::PublishSwerveTelemetry() noexcept
+{
+  const std::array<SwerveModule *, 4> modules{
+      m_frontLeftSwerveModule.get(),
+      m_frontRightSwerveModule.get(),
+      m_rearLeftSwerveModule.get(),
+      m_rearRightSwerveModule.get()};
+  const std::array<std::string, 4> names{"Front Left", "Front Right", "Rear Left", "Rear Right"};
+
+  for (std::size_t i = 0; i < modules.size(); ++i)
+  {
+    const std::string prefix = "Swerve/" + names[i] + "/";
+    const std::optional<int> raw = modules[i]->GetRawAbsolutePosition();
+
+    frc::SmartDashboard::PutBoolean(prefix + "Encoder OK", raw.has_value());
+    frc::SmartDashboard::PutNumber(prefix + "Raw Position", raw.value_or(0));
+    frc::SmartDashboard::PutNumber(prefix + "Offset", modules[i]->GetAlignment());
+    frc::SmartDashboard::PutNumber(prefix + "Angle", modules[i]->GetTurningPosition().value());
+    frc::SmartDashboard::PutNumber(prefix + "Commanded Angle", modules[i]->GetCommandedHeading().value());
+    frc::SmartDashboard::PutBoolean(prefix + "Turning Fault", modules[i]->GetTurningFault());
+  }
+
+  frc::SmartDashboard::PutNumber("Swerve/Gyro Heading", GetHeading().value());
+}
+
 void DriveSubsystem::Periodic() noexcept
 {
   m_frontLeftSwerveModule->Periodic();
   m_frontRightSwerveModule->Periodic();
   m_rearLeftSwerveModule->Periodic();
   m_rearRightSwerveModule->Periodic();
+
+  PublishSwerveTelemetry();
 
   frc::Rotation2d botRot;
 

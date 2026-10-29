@@ -154,6 +154,19 @@ namespace nonDrive
     //  dont use 12 unless its for climber code
 
 }
+// Button board (Driver Station port 1); its buttons are numbered 13 - 20.
+namespace buttonBoard
+{
+    constexpr int kShooterSpeaker = 13; // Hold: spin up shooter at speaker speed
+    constexpr int kShooterFull = 14;    // Hold: spin up shooter at full power
+    constexpr int kArmPickup = 15;      // Arm to pickup position
+    constexpr int kArmSpeakerClose = 16; // Arm to close speaker shot
+    constexpr int kArmSpeakerFar = 17;  // Arm to far speaker shot
+    constexpr int kArmStow = 18;        // Arm to stowed position
+    // Button 19 is not used.
+    constexpr int kAutoSelect = 20;     // On/held when auto starts: Left Side auto (else Right Side)
+}
+
 namespace arm
 {
     constexpr units::angular_velocity::degrees_per_second_t kShoulderPositionMaxVelocity = 20.0_deg_per_s;

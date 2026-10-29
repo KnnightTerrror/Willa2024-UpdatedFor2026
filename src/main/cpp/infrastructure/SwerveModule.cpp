@@ -14,6 +14,7 @@
 #include "infrastructure/SwerveModule.h"
 
 #include <frc/DataLogManager.h>
+#include <frc/DriverStation.h>
 #include <frc/RobotController.h>
 #include <frc/shuffleboard/BuiltInWidgets.h>
 #include <frc/shuffleboard/Shuffleboard.h>
@@ -21,6 +22,7 @@
 #include <frc/shuffleboard/ShuffleboardTab.h>
 #include <frc/shuffleboard/SimpleWidget.h>
 #include <networktables/NetworkTableValue.h>
+#include <units/math.h>
 #include <units/voltage.h>
 #include <wpi/StringMap.h>
 
@@ -151,6 +153,7 @@ SwerveModule::SwerveModule(
 bool SwerveModule::GetStatus() const noexcept
 {
     return m_absoluteSensorGood &&
+           !m_turningFault &&
            m_turningMotorControllerValidated &&
            m_driveMotorControllerValidated;
 }
@@ -209,6 +212,50 @@ void SwerveModule::Periodic() noexcept
         return;
     }
 
+    // Turning runaway protection.  If the module cannot get within 45 degrees
+    // of the commanded position for 2 seconds while enabled, something is
+    // wrong: most likely, the turning motor direction (kTurningMotorInverted)
+    // does not match the absolute position sensor, so the PID pushes the
+    // wrong way and the module spins continuously.  Rather than letting it
+    // spin, shut off the turning motor (until the next mode starts) and report
+    // the problem.
+    if (m_turningFault)
+    {
+        m_turningMotor->Stop();
+
+        return;
+    }
+
+    units::angle::degree_t turningError = m_turningPosition - m_commandedHeading;
+
+    if (turningError < -180.0_deg)
+    {
+        turningError += 360.0_deg;
+    }
+    else if (turningError >= 180.0_deg)
+    {
+        turningError -= 360.0_deg;
+    }
+
+    const uint64_t FPGATime = frc::RobotController::GetFPGATime();
+
+    if (!frc::DriverStation::IsEnabled() || units::math::abs(turningError) < 45.0_deg || m_turningErrorSinceFPGATime == 0)
+    {
+        m_turningErrorSinceFPGATime = FPGATime;
+    }
+    else if (FPGATime - m_turningErrorSinceFPGATime > 2000000) // 2 seconds
+    {
+        m_turningFault = true;
+        m_turningMotor->Stop();
+
+        std::printf("**** Swerve Module (%s) TURNING FAULT: could not reach commanded angle (%.0f deg, at %.0f deg); "
+                    "turning motor stopped.  Check physical::kTurningMotorInverted, the absolute encoder, and the "
+                    "turning motor CAN ID.\n",
+                    m_name.c_str(), m_commandedHeading.value(), m_turningPosition.value());
+
+        return;
+    }
+
     // Update (and apply below) turning position PID.
     double calculated = m_rioPIDController->Calculate(m_turningPosition);
 
@@ -232,6 +279,9 @@ void SwerveModule::Periodic() noexcept
 
 void SwerveModule::ResetTurning() noexcept
 {
+    m_turningFault = false;
+    m_turningErrorSinceFPGATime = 0;
+
     const std::optional<units::angle::degree_t> position = m_turningPositionPWM->GetAbsolutePosition();
 
     // If absolute position isn't available, there's no basis for resetting and
@@ -250,6 +300,24 @@ void SwerveModule::ResetTurning() noexcept
     m_rioPIDController->Reset(m_turningPosition);
 }
 
+std::optional<int> SwerveModule::GetRawAbsolutePosition() noexcept
+{
+    return m_turningPositionPWM->GetAbsolutePositionWithoutAlignment();
+}
+
+int SwerveModule::GetAlignment() noexcept
+{
+    return m_turningPositionPWM->GetAlignment();
+}
+
+void SwerveModule::SetAlignment(const int alignment) noexcept
+{
+    m_turningPositionPWM->SetAlignment(alignment);
+
+    // Turning position has (likely) changed; start over from here.
+    ResetTurning();
+}
+
 void SwerveModule::ResetDrive() noexcept
 {
     m_driveMotor->SpecifyPosition(0.0_m);
@@ -258,6 +326,8 @@ void SwerveModule::ResetDrive() noexcept
 units::angle::degree_t SwerveModule::GetTurningPosition() noexcept
 {
     const std::optional<units::angle::degree_t> position = m_turningPositionPWM->GetAbsolutePosition();
+
+    m_absoluteSensorGood = position.has_value();
 
     if (position.has_value())
     {

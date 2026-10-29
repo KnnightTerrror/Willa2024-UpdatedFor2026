@@ -163,6 +163,22 @@ public:
   // Note that the latter condition is only checked in test mode.
   bool GetStatus() const noexcept;
 
+  // Absolute position sensor alignment (calibration).  The raw position is
+  // on the [-2048, +2048) "count" scale, without any alignment applied, and
+  // is empty if the sensor is not working.  The alignment is added to the raw
+  // position, so that zero is with the wheel pointing straight forward.
+  std::optional<int> GetRawAbsolutePosition() noexcept;
+  int GetAlignment() noexcept;
+  void SetAlignment(const int alignment) noexcept;
+
+  // True if the turning motor has been shut off, because the module was not
+  // able to reach the commanded turning position (see Periodic()).  This is
+  // cleared by ResetTurning() (i.e. whenever a mode starts).
+  bool GetTurningFault() const noexcept { return m_turningFault; }
+
+  // For telemetry: commanded turning position (degrees).
+  units::angle::degree_t GetCommandedHeading() const noexcept { return m_commandedHeading; }
+
   // Set motor controller turning position using absolute position sensor (best
   // done when robot is at rest).
   void ResetTurning() noexcept;
@@ -339,6 +355,10 @@ private:
   // a local copy is kept for even quicker access.
   bool m_absoluteSensorGood{false};
   bool m_turningPositionAsCommanded{false};
+
+  // Turning runaway protection (see Periodic()).
+  bool m_turningFault{false};
+  uint64_t m_turningErrorSinceFPGATime{0};
   units::angle::degree_t m_turningPosition{0};
 
   // Last commanded turn heading and drive distance/speed.

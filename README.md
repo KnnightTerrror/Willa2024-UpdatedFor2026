@@ -21,15 +21,84 @@ Use the **2026 WPILib VS Code** to build and deploy.  Use "WPILib: Manage Vendor
 * **navX.**  The navX library is now distributed by Studica: `studica::AHRS` (`<studica/AHRS.h>`), constructed with `NavXComType::kMXP_SPI`.
 * **WPILib command-based controllers.**  `CommandXboxController`/`CommandGenericHID` no longer derive from `GenericHID`, so the `JoystickButton`/`POVButton` bindings now use `m_xbox.Start()`, `m_xbox.Back()`, `m_xbox.POVUp()`, `m_xbox.POVDown()`, and the button board's lights/axis counts use `m_buttonBoard.GetHID()`.
 * **WPILib deprecations.**  `SwerveModuleState::Optimize()` (now an instance method), `CommandPtr::Schedule()` (now `CommandScheduler::GetInstance().Schedule()`), and the SysId `Config` constructor were updated.
-* **PathPlanner.**  Removed.  The 2024 PathPlanner setup was already commented out and no autos used it; the timed autos (button board button 9 selects Left/Right) are unchanged.  To add PathPlanner back, install PathplannerLib 2026 with "WPILib: Manage Vendor Libraries" (this needs an internet connection that can reach `3015rangerrobotics.github.io`), then call `AutoBuilder::configure()` from the drive subsystem; `DriveSubsystem::GetSpeed()`, `Drive(ChassisSpeeds)`, `GetPose()` and `ResetOdometry()` provide what it needs.
+* **PathPlanner.**  Removed.  The 2024 PathPlanner setup was already commented out and no autos used it; the timed autos (button board button 20 selects Left/Right) are unchanged.  To add PathPlanner back, install PathplannerLib 2026 with "WPILib: Manage Vendor Libraries" (this needs an internet connection that can reach `3015rangerrobotics.github.io`), then call `AutoBuilder::configure()` from the drive subsystem; `DriveSubsystem::GetSpeed()`, `Drive(ChassisSpeeds)`, `GetPose()` and `ResetOdometry()` provide what it needs.
 * **Test Mode config burning.**  `RobotContainer::TestExit()` is called on entry to every mode; it now only does its work (including saving motor controller config to flash) if Test Mode actually ran.  Before, it tried to burn flash at the start of every Autonomous and Teleop.  REVLib 2026 refuses to do that while enabled.
+
+* **Motor controller settings are reset on startup.**  Every time the code configures a SPARK MAX/FLEX, it first resets the controller to factory defaults, so nothing left over from other code (inversion, follower mode, current limits, ...) can affect it.  The config is also saved to the controller's flash once at startup (as REV recommends), so it comes back correctly after a brownout.
 
 ## Before running on the robot
 
 1. Update all SPARK MAX/FLEX firmware with the REV Hardware Client (REVLib 2026 expects current firmware).
 2. Update the navX firmware if Studica's tools say it is out of date.
-3. Run Test Mode once, then disable, so the motor controller configs are saved to flash.
+3. Calibrate the swerve module offsets (below).
 4. Check that field-oriented drive and the swerve module/arm directions are still correct, before driving at speed.
+
+## Swerve module offsets (calibration)
+
+Each swerve module has an absolute encoder (SRX MAG ENCODER) for the wheel's angle.  The **alignment offset** tells the code which encoder reading means "wheel pointing straight forward".  If the offsets are wrong, the wheels turn to strange angles when the robot is enabled, and the robot will not drive straight.
+
+To calibrate (the robot must be **disabled**):
+
+1. Put the robot up on blocks, so the wheels are off the ground.
+2. By hand, point all four wheels **straight forward** (parallel to the robot's sides).  Make all four bevel gears face the **same side** of the robot (e.g. all toward the robot's left).
+3. Do **one** of these:
+   * hold **Back + Start** on the Xbox controller for 3 seconds, or
+   * on the dashboard (SmartDashboard / Shuffleboard / Elastic), set **Swerve/Save Offsets** to true.
+4. Check the **Swerve/Calibration** entry on the dashboard (or the Driver Station console): it shows the new offsets, e.g. `Saved: FL +1427, FR -903, RL +384, RR -205`.
+
+The offsets are used right away and saved on the roboRIO (`/home/lvuser/swerve_offsets.txt`), so they are kept across reboots and code deploys.  The console also prints lines you can paste into `Constants.h` (`kFrontLeftAlignmentOffset`, ...), to make them the defaults; the saved file takes priority over `Constants.h` while it exists.
+
+If calibration says an encoder is "not working", check that encoder's wiring (DIO ports 0 - 3: front left, front right, rear left, rear right).
+
+**Checking the result:** enable Teleop (still on blocks) and push the left stick gently forward.  All four wheels should point forward and spin so the robot would drive forward.  If one wheel spins backward, that module's bevel gear was facing the other way: disable, turn that wheel 180°, and calibrate again.
+
+### Dashboard values
+
+Under **Swerve/** on the dashboard, for each module: **Encoder OK**, **Raw Position** (encoder reading before the offset), **Offset**, **Angle** (degrees, 0 = forward), **Commanded Angle**, and **Turning Fault**; plus **Gyro Heading**.  Turn a wheel by hand while disabled: its **Angle** should change smoothly and go **up** when the wheel turns counter-clockwise (seen from above).
+
+### Wheels spinning non-stop when enabled
+
+If a module keeps spinning instead of stopping at an angle, its turning motor direction does not match its encoder.  The code now detects this: if a module cannot reach its commanded angle within 2 seconds, it stops that module's turning motor, sets **Turning Fault**, and prints `TURNING FAULT` in the Driver Station console.  The fault clears each time the robot is enabled.  Things to check:
+
+* If **all four** modules fault, flip `physical::kTurningMotorInverted` in `Constants.h`.
+* If only one module faults, check that module's encoder (Encoder OK) and that its turning motor CAN ID matches `Constants.h` (CAN IDs 2, 4, 6, 8 are turning; 1, 3, 5, 7 are drive).
+* If **Angle** goes **down** when a wheel is turned counter-clockwise by hand, that encoder reads backwards.  Do not just flip `kTurningMotorInverted` in that case (it would stop the spinning, but steering would be mirrored); the encoder direction needs to be reversed in code (`AngleSensor`).
+
+## Controls
+
+### Xbox controller (Driver Station port 0)
+
+| Control | Action |
+| --- | --- |
+| Left stick | Drive (forward/back, strafe) |
+| Right stick (left/right) | Rotate |
+| Back | Zero gyro heading and switch to field-oriented drive |
+| Start | Toggle slow mode |
+| Left trigger (hold) | Intake |
+| Left bumper (hold) | Reverse intake |
+| Right trigger (hold) | Trigger (feed note into shooter) |
+| Right bumper (hold) | Reverse trigger and shooter |
+| Y / X (hold) | Climber 1 forward / reverse |
+| B / A (hold) | Climber 2 forward / reverse |
+| D-pad up / down | Arm to +7° / −7° (both are at/below the arm's lower limit) |
+| Back + Start, 3 s, **disabled only** | Calibrate swerve offsets |
+
+The robot starts in robot-oriented drive; press Back (with the robot facing downfield) for field-oriented.
+
+### Button board (Driver Station port 1, buttons 13 - 20)
+
+| Button | Action |
+| --- | --- |
+| 13 (hold) | Spin up shooter, speaker speed |
+| 14 (hold) | Spin up shooter, full power |
+| 15 | Arm to pickup (11°) |
+| 16 | Arm to close speaker shot (36°) |
+| 17 | Arm to far speaker shot (53°) |
+| 18 | Arm to stow (17°) |
+| 19 | Not used |
+| 20 | Auto selector: on/held when Autonomous starts = Left Side auto, otherwise Right Side auto |
+
+To shoot: set the arm angle, hold 13 (or 14) to spin up the shooter, then pull the right trigger to feed.  The button numbers are in the `buttonBoard` namespace in `Constants.h`.
 
 ## Features
 

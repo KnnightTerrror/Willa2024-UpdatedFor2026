@@ -5,7 +5,10 @@
 #include "Constants.h"
 #include "RobotContainer.h"
 
+#include <frc/DriverStation.h>
+#include <frc/RobotController.h>
 #include <frc/geometry/Pose2d.h>
+#include <frc/smartdashboard/SmartDashboard.h>
 #include <frc/geometry/Rotation2d.h>
 #include <frc/kinematics/SwerveDriveKinematics.h>
 #include <frc/trajectory/Trajectory.h>
@@ -30,6 +33,9 @@ RobotContainer::RobotContainer() noexcept
   m_LEDPatternCount = m_infrastructureSubsystem.GetLEDPatternCount();
 
   ConfigureBindings();
+
+  // Dashboard control for swerve module offset calibration (see Periodic()).
+  frc::SmartDashboard::PutBoolean(kSaveSwerveOffsetsKey, false);
 
   printf("Axis: %i; Button: %i\n", m_buttonBoard.GetHID().GetAxisCount(), m_buttonBoard.GetHID().GetButtonCount());
 }
@@ -61,8 +67,55 @@ frc2::CommandPtr RobotContainer::DriveCommandFactory(RobotContainer *container) 
       driveRequirements)};
 }
 
+// Swerve module offset calibration.  With the robot DISABLED, point all four
+// wheels straight forward, then either hold Back + Start on the Xbox
+// controller for 3 seconds, or set "Swerve/Save Offsets" on the dashboard.
+// The offsets are applied right away and saved on the roboRIO (see
+// DriveSubsystem::CalibrateAlignmentOffsets()).  This never happens while the
+// robot is enabled.
 void RobotContainer::Periodic() noexcept
 {
+  bool calibrate = false;
+
+  if (frc::SmartDashboard::GetBoolean(kSaveSwerveOffsetsKey, false))
+  {
+    frc::SmartDashboard::PutBoolean(kSaveSwerveOffsetsKey, false);
+
+    calibrate = true;
+  }
+
+  const bool held = frc::DriverStation::IsDisabled() &&
+                    m_xbox.GetHID().GetBackButton() &&
+                    m_xbox.GetHID().GetStartButton();
+  const uint64_t FPGATime = frc::RobotController::GetFPGATime();
+
+  if (!held)
+  {
+    m_calibrateHeldSince = 0;
+    m_calibrateDone = false;
+  }
+  else if (m_calibrateHeldSince == 0)
+  {
+    m_calibrateHeldSince = FPGATime;
+  }
+  else if (!m_calibrateDone && FPGATime - m_calibrateHeldSince > 3000000) // 3 seconds
+  {
+    m_calibrateDone = true;
+
+    calibrate = true;
+  }
+
+  if (calibrate)
+  {
+    if (frc::DriverStation::IsDisabled())
+    {
+      (void)m_driveSubsystem.CalibrateAlignmentOffsets();
+    }
+    else
+    {
+      printf("Swerve offsets can only be saved while the robot is disabled.\n");
+    }
+  }
 }
 
 /*
@@ -274,28 +327,28 @@ void RobotContainer::ConfigureBindings() noexcept
   //                                                                      {&arm_})
   //                                                     .ToPtr());
 
-  m_buttonBoard.Button(7).WhileTrue(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kShooterSpeaker).WhileTrue(frc2::InstantCommand([&]() -> void
                                                          { IntakeSubsystem_.Ootas(); },
                                                          {&IntakeSubsystem_})
                                         .ToPtr());
 
-  m_buttonBoard.Button(7).OnFalse(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kShooterSpeaker).OnFalse(frc2::InstantCommand([&]() -> void
                                                        { IntakeSubsystem_.StopOotas(); },
                                                        {&IntakeSubsystem_})
                                       .ToPtr());
-  m_buttonBoard.Button(7).OnFalse(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kShooterSpeaker).OnFalse(frc2::InstantCommand([&]() -> void
                                                        { m_buttonBoard.GetHID().SetOutputs(m_buttonlights); },
                                                        {})
                                       .ToPtr());
-  m_buttonBoard.Button(6).WhileTrue(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kArmPickup).WhileTrue(frc2::InstantCommand([&]() -> void
                                                          { arm_.ArmAtPickup(); },
                                                          {&arm_})
                                         .ToPtr());
-  m_buttonBoard.Button(5).WhileTrue(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kShooterFull).WhileTrue(frc2::InstantCommand([&]() -> void
                                                          { IntakeSubsystem_.FullOotas(); },
                                                          {&IntakeSubsystem_})
                                         .ToPtr());
-  m_buttonBoard.Button(5).OnFalse(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kShooterFull).OnFalse(frc2::InstantCommand([&]() -> void
                                                        { IntakeSubsystem_.StopOotas(); },
                                                        {&IntakeSubsystem_})
                                       .ToPtr());
@@ -309,15 +362,15 @@ void RobotContainer::ConfigureBindings() noexcept
                                                          {&IntakeSubsystem_})
                                  .ToPtr());
   */
-  m_buttonBoard.Button(10).WhileTrue(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kArmSpeakerFar).WhileTrue(frc2::InstantCommand([&]() -> void
                                                           { arm_.SpeakerFar(); },
                                                           {&arm_})
                                          .ToPtr());
-  m_buttonBoard.Button(11).WhileTrue(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kArmSpeakerClose).WhileTrue(frc2::InstantCommand([&]() -> void
                                                           { arm_.ArmAtSpeaker(); },
                                                           {&arm_})
                                          .ToPtr());
-  m_buttonBoard.Button(12).WhileTrue(frc2::InstantCommand([&]() -> void
+  m_buttonBoard.Button(buttonBoard::kArmStow).WhileTrue(frc2::InstantCommand([&]() -> void
                                                           { arm_.Stow(); },
                                                           {&arm_})
                                          .ToPtr());
@@ -325,7 +378,7 @@ void RobotContainer::ConfigureBindings() noexcept
 
 std::optional<frc2::CommandPtr> RobotContainer::GetAutonomousCommand() noexcept
 {
-  if (m_buttonBoard.GetHID().GetRawButton(9))
+  if (m_buttonBoard.GetHID().GetRawButton(buttonBoard::kAutoSelect))
   {
     return LeftSide::LeftSideCommandFactory(&m_driveSubsystem, &arm_, &IntakeSubsystem_);
   }

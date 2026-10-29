@@ -27,18 +27,20 @@ namespace SparkMaxFactory
 // not need to change), but translates the map into a REVLib config object and
 // applies it with a single Configure() call.
 
-// ApplyConfig(false) applies the config without resetting other parameters
-// and without saving to flash; this is used at construction and whenever
-// settings are adjusted from Test Mode.  ApplyConfig(true) first resets all
-// "safe" parameters to factory defaults, applies the config, and persists it
-// to flash (this replaces the old RestoreFactoryDefaults() + BurnFlash()
-// sequence).  REVLib refuses to persist parameters while the robot is
-// enabled, so only burn when disabled (e.g. on leaving Test Mode).
+// Every ApplyConfig() first resets all "safe" parameters to factory defaults
+// and then applies the config, so the controller always ends up with exactly
+// this config (and nothing left over from other code).  The first
+// ApplyConfig() (at construction, while the robot is disabled) also saves the
+// config to flash, as REV recommends, so the controller comes up correctly
+// configured after a power cycle.  After that, ApplyConfig(false) does not
+// save (it is used whenever settings are adjusted from Test Mode), while
+// ApplyConfig(true) does (this replaces the old RestoreFactoryDefaults() +
+// BurnFlash() sequence).  REVLib refuses to save parameters while the robot
+// is enabled, so only burn when disabled (e.g. on leaving Test Mode).
 
-// Since every parameter not listed via SetConfig()/AddConfig() is left alone
-// by ApplyConfig(false) (or reset to the factory default by
-// ApplyConfig(true)), there is no reason to list parameters that should be at
-// their default values.
+// Since every parameter not listed via SetConfig()/AddConfig() is reset to
+// the factory default, there is no reason to list parameters that should be
+// at their default values.
 
 // The motor controller may reset (brownout, etc.).  Periodic() watches for
 // the "has reset" warning; when it is seen, faults are cleared and the config
