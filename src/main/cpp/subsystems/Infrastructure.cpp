@@ -18,21 +18,22 @@ InfrastructureSubsystem::InfrastructureSubsystem() noexcept
 
 void InfrastructureSubsystem::Periodic() noexcept
 {
-    if (NoteSensor() == false)
+    const bool note = NoteSensor();
+
+    // Only print when this changes; printing every iteration (50 times a
+    // second) slows the robot loop down.
+    if (note != m_note)
     {
-        printf("no note");
-    }
-    else
-    {
-        printf("yes note");
+        m_note = note;
+
+        printf(note ? "Note sensor: yes note\n" : "Note sensor: no note\n");
     }
 
-    if (NoteSensor() == true)
+    if (note)
     {
         SetLEDPattern(30);
     }
-
-    if (NoteSensor() == false)
+    else
     {
         SetLEDPattern(36);
     }

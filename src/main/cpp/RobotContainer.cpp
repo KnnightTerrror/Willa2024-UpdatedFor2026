@@ -75,6 +75,9 @@ frc2::CommandPtr RobotContainer::DriveCommandFactory(RobotContainer *container) 
 // robot is enabled.
 void RobotContainer::Periodic() noexcept
 {
+  frc::SmartDashboard::PutBoolean("Drive/Slow Mode", m_slow);
+  frc::SmartDashboard::PutBoolean("Drive/Field Oriented", m_fieldOriented);
+
   bool calibrate = false;
 
   if (frc::SmartDashboard::GetBoolean(kSaveSwerveOffsetsKey, false))

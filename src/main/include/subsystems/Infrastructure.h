@@ -43,4 +43,5 @@ private:
     std::unique_ptr<frc::PowerDistribution> pdh_;
     std::unique_ptr<frc::Spark> leds_;
     std::unique_ptr<frc::DigitalInput> m_notesensor;
+    bool m_note{false};
 };

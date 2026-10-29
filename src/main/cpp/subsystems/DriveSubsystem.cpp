@@ -297,6 +297,8 @@ void DriveSubsystem::PublishSwerveTelemetry() noexcept
     frc::SmartDashboard::PutNumber(prefix + "Angle", modules[i]->GetTurningPosition().value());
     frc::SmartDashboard::PutNumber(prefix + "Commanded Angle", modules[i]->GetCommandedHeading().value());
     frc::SmartDashboard::PutBoolean(prefix + "Turning Fault", modules[i]->GetTurningFault());
+    frc::SmartDashboard::PutNumber(prefix + "Drive Volts", modules[i]->GetDriveVoltage().value());
+    frc::SmartDashboard::PutNumber(prefix + "Drive Speed (mps)", modules[i]->GetDriveVelocity().value());
   }
 
   frc::SmartDashboard::PutNumber("Swerve/Gyro Heading", GetHeading().value());
@@ -1240,14 +1242,29 @@ void DriveSubsystem::SetModuleStates(std::array<frc::SwerveModuleState, 4> &desi
   rearRight.speed *= m_limit;
 
   // To avoid brownout, reduce power when wheels are too far out of position.
-  const units::angle::degree_t frontLeftTurningError = m_frontLeftSwerveModule->GetTurningPosition() - frontLeft.angle.Degrees();
-  const units::angle::degree_t frontRightTurningError = m_frontRightSwerveModule->GetTurningPosition() - frontRight.angle.Degrees();
-  const units::angle::degree_t rearLeftTurningError = m_rearLeftSwerveModule->GetTurningPosition() - rearLeft.angle.Degrees();
-  const units::angle::degree_t rearRightTurningError = m_rearRightSwerveModule->GetTurningPosition() - rearRight.angle.Degrees();
-  const double totalTurningError = std::abs(frontLeftTurningError.to<double>()) +
-                                   std::abs(frontRightTurningError.to<double>()) +
-                                   std::abs(rearLeftTurningError.to<double>()) +
-                                   std::abs(rearRightTurningError.to<double>());
+  // Each module may point its wheel backwards (and reverse the drive) rather
+  // than turn more than 90 degrees, so the error that matters is modulo 180
+  // degrees, i.e. in [-90, +90).
+  auto turningError = [](units::angle::degree_t actual, units::angle::degree_t desired) -> double
+  {
+    double error = std::fmod((actual - desired).value(), 180.0);
+
+    if (error >= 90.0)
+    {
+      error -= 180.0;
+    }
+    else if (error < -90.0)
+    {
+      error += 180.0;
+    }
+
+    return std::abs(error);
+  };
+
+  const double totalTurningError = turningError(m_frontLeftSwerveModule->GetTurningPosition(), frontLeft.angle.Degrees()) +
+                                   turningError(m_frontRightSwerveModule->GetTurningPosition(), frontRight.angle.Degrees()) +
+                                   turningError(m_rearLeftSwerveModule->GetTurningPosition(), rearLeft.angle.Degrees()) +
+                                   turningError(m_rearRightSwerveModule->GetTurningPosition(), rearRight.angle.Degrees());
 
   if (totalTurningError > 10.0)
   {

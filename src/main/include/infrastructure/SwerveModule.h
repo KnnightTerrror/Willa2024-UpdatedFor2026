@@ -176,8 +176,10 @@ public:
   // cleared by ResetTurning() (i.e. whenever a mode starts).
   bool GetTurningFault() const noexcept { return m_turningFault; }
 
-  // For telemetry: commanded turning position (degrees).
+  // For telemetry: commanded turning position (degrees), and drive motor
+  // voltage actually being applied.
   units::angle::degree_t GetCommandedHeading() const noexcept { return m_commandedHeading; }
+  units::volt_t GetDriveVoltage() noexcept { return m_driveMotor->GetVoltage(); }
 
   // Set motor controller turning position using absolute position sensor (best
   // done when robot is at rest).

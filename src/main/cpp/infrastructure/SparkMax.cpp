@@ -153,11 +153,8 @@ namespace
         ConfigMap config_;
         std::string configReporting_;
 
-        // The next two data members are used to spread out any work done in
-        // Periodic(), so that all motor controllers do not do this work
-        // during the same iteration.
-        uint64_t FPGATime_{frc::RobotController::GetFPGATime()};
-        int iteration_{0};
+        // Last seen state of the sticky "has reset" warning.
+        bool hasReset_{false};
 
         // Current configuration verification status.
         bool configGood_{false};
@@ -184,7 +181,7 @@ namespace
         uint resets_{0};
         uint catches_{0};
         uint errors_{0};
-        int lastError_{0};
+        rev::REVLibError lastError_{rev::REVLibError::kOk};
     };
 
     // SPARK Fault Codes with shorthand characters used here:
@@ -235,6 +232,70 @@ namespace
         warningInfo += warnings.other ? 'O' : '.';
 
         return warningInfo;
+    }
+
+    // Readable name for a REVLib error code (for console messages).
+    const char *ErrorName(const rev::REVLibError error) noexcept
+    {
+        switch (error)
+        {
+        case rev::REVLibError::kOk:
+            return "kOk";
+        case rev::REVLibError::kError:
+            return "kError";
+        case rev::REVLibError::kTimeout:
+            return "kTimeout";
+        case rev::REVLibError::kNotImplemented:
+            return "kNotImplemented";
+        case rev::REVLibError::kHALError:
+            return "kHALError";
+        case rev::REVLibError::kCantFindFirmware:
+            return "kCantFindFirmware";
+        case rev::REVLibError::kFirmwareTooOld:
+            return "kFirmwareTooOld";
+        case rev::REVLibError::kFirmwareTooNew:
+            return "kFirmwareTooNew";
+        case rev::REVLibError::kParamInvalidID:
+            return "kParamInvalidID";
+        case rev::REVLibError::kParamMismatchType:
+            return "kParamMismatchType";
+        case rev::REVLibError::kParamAccessMode:
+            return "kParamAccessMode";
+        case rev::REVLibError::kParamInvalid:
+            return "kParamInvalid";
+        case rev::REVLibError::kParamNotImplementedDeprecated:
+            return "kParamNotImplementedDeprecated";
+        case rev::REVLibError::kFollowConfigMismatch:
+            return "kFollowConfigMismatch";
+        case rev::REVLibError::kInvalid:
+            return "kInvalid";
+        case rev::REVLibError::kSetpointOutOfRange:
+            return "kSetpointOutOfRange";
+        case rev::REVLibError::kUnknown:
+            return "kUnknown";
+        case rev::REVLibError::kCANDisconnected:
+            return "kCANDisconnected";
+        case rev::REVLibError::kDuplicateCANId:
+            return "kDuplicateCANId";
+        case rev::REVLibError::kInvalidCANId:
+            return "kInvalidCANId";
+        case rev::REVLibError::kSparkMaxDataPortAlreadyConfiguredDifferently:
+            return "kSparkMaxDataPortAlreadyConfiguredDifferently";
+        case rev::REVLibError::kSparkFlexBrushedWithoutDock:
+            return "kSparkFlexBrushedWithoutDock";
+        case rev::REVLibError::kInvalidBrushlessEncoderConfiguration:
+            return "kInvalidBrushlessEncoderConfiguration";
+        case rev::REVLibError::kFeedbackSensorIncompatibleWithDataPortConfig:
+            return "kFeedbackSensorIncompatibleWithDataPortConfig";
+        case rev::REVLibError::kParamInvalidChannel:
+            return "kParamInvalidChannel";
+        case rev::REVLibError::kParamInvalidValue:
+            return "kParamInvalidValue";
+        case rev::REVLibError::kCannotPersistParametersWhileEnabled:
+            return "kCannotPersistParametersWhileEnabled";
+        }
+
+        return "kUnknown";
     }
 
     std::string ValueInfo(const SmartMotorBase::ConfigValue &value) noexcept
@@ -717,7 +778,7 @@ void SparkMotor::Configure(const bool burn) noexcept
              {
         if (AnyError(motor_->Configure(*sparkConfig, resetMode, persistMode)))
         {
-            std::printf("SparkMax[%i] %s %s config: FAIL (%i)!\n", canId_, name_.c_str(), persist ? "burn" : "apply", lastError_);
+            std::printf("SparkMax[%i] %s %s config: FAIL (%s)!\n", canId_, name_.c_str(), persist ? "burn" : "apply", ErrorName(lastError_));
 
             // Saving to flash is refused while the robot is enabled; make
             // sure the config is at least applied.
@@ -746,7 +807,7 @@ void SparkMotor::ClearFaults() noexcept
     {
         const bool status = GetStatus();
 
-        std::printf("SparkMax[%i] %s Status: %s[%s|%s] resets=%u catches=%u errors=%u (last=%i).\n",
+        std::printf("SparkMax[%i] %s Status: %s[%s|%s] resets=%u catches=%u errors=%u (last=%s).\n",
                     canId_,
                     name_.c_str(),
                     status ? "T" : "F",
@@ -755,7 +816,7 @@ void SparkMotor::ClearFaults() noexcept
                     resets_,
                     catches_,
                     errors_,
-                    lastError_);
+                    ErrorName(lastError_));
     }
 
     faultBits_ = 0;
@@ -763,7 +824,7 @@ void SparkMotor::ClearFaults() noexcept
     resets_ = 0;
     catches_ = 0;
     errors_ = 0;
-    lastError_ = 0;
+    lastError_ = rev::REVLibError::kOk;
 
     DoSafely("ClearFaults", [&]() -> void
              { if (motor_) { (void)AnyError(motor_->ClearFaults()); } });
@@ -908,9 +969,6 @@ void SparkMotor::ShuffleboardPeriodic() noexcept
     }
 }
 
-// Periodic() normally runs at 50Hz, but this is a default and it is possible
-// that this is running at another rate.  So, GetFPGATime() is used to work
-// things out (more below), for management of any controller reset.
 void SparkMotor::Periodic() noexcept
 {
     // Do any Shuffleboard work, if Shuffleboard has been set up.
@@ -929,7 +987,8 @@ void SparkMotor::Periodic() noexcept
     // events, sticky faults/warnings are used.  There is no expectation that
     // this information is instantaneously accurate, it is only used for
     // reporting and to detect any motor controller reboots.  This is cleared
-    // by ClearFaults().
+    // by ClearFaults().  Nothing here does any (slow) CAN round trip, so this
+    // never holds up the robot loop.
     bool hasReset{false};
 
     DoSafely("GetStickyFaults/GetStickyWarnings", [&]() -> void
@@ -941,38 +1000,17 @@ void SparkMotor::Periodic() noexcept
         warningBits_ |= warnings.rawBits;
         hasReset = warnings.hasReset; });
 
-    // In microseconds.  At 50Hz, this will nominally tick by increments of
-    // 20000.  The object here is to only continue at a rate of around 3Hz, and
-    // to spread things around so that the aggregate work of all motor
-    // controllers is done evenly; to avoid synchronizing many motor
-    // controllers so they all do this work during the same period.  The CAN ID
-    // (mod 16) is used to facilitate this spread, along with a counter to
-    // track Periodic() calls.
-    const uint64_t FPGATime = frc::RobotController::GetFPGATime();
-    const uint64_t deltaTime = FPGATime - FPGATime_;
-
-    if (++iteration_ % 16 != canId_ % 16 || deltaTime < 250000)
-    {
-        return;
-    }
-
-    FPGATime_ = FPGATime;
-    iteration_ = canId_ % 16;
-
-    // If the controller has reset (power loss, brownout, etc.), clear the
-    // sticky faults/warnings so this is detected only once, and re-apply the
-    // config, in case it was not persisted.
-    if (hasReset)
+    // If the controller has reset (power loss, brownout, etc.), just count and
+    // report it.  The config was saved to flash at startup, so the controller
+    // comes back up with it on its own; there is no need to re-apply it here.
+    if (hasReset && !hasReset_)
     {
         ++resets_;
 
-        std::printf("SparkMax[%i] %s reset detected; re-applying config.\n", canId_, name_.c_str());
-
-        DoSafely("ClearFaults", [&]() -> void
-                 { (void)AnyError(motor_->ClearFaults()); });
-
-        Configure(false);
+        std::printf("SparkMax[%i] %s has reset (power loss or brownout?).\n", canId_, name_.c_str());
     }
+
+    hasReset_ = hasReset;
 }
 
 void SparkMotor::SetIdleMode(const SmartMotorBase::IdleMode mode) noexcept
@@ -1207,7 +1245,7 @@ bool SparkMotor::AnyError(const rev::REVLibError returnCode) noexcept
     }
 
     ++errors_;
-    lastError_ = static_cast<int>(returnCode);
+    lastError_ = returnCode;
 
     return true;
 }
