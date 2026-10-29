@@ -40,7 +40,7 @@ Each swerve module has an absolute encoder (SRX MAG ENCODER) for the wheel's ang
 To calibrate (the robot must be **disabled**):
 
 1. Put the robot up on blocks, so the wheels are off the ground.
-2. By hand, point all four wheels **straight forward** (parallel to the robot's sides).  Make all four bevel gears face the **same side** of the robot (e.g. all toward the robot's left).
+2. By hand, point all four wheels **straight forward** (parallel to the robot's sides).  The right-side modules are mirror images of the left-side modules (that is why `kRightDriveMotorInverted` is true and `kLeftDriveMotorInverted` is false), so the **left** wheels' bevel gears must face the **opposite** side from the **right** wheels' bevel gears.  Before calibrating, check the dashboard: if the existing offsets are right, all four **Angle** values will already be close to 0, and there is no need to calibrate.
 3. Do **one** of these:
    * hold **Back + Start** on the Xbox controller for 3 seconds, or
    * on the dashboard (SmartDashboard / Shuffleboard / Elastic), set **Swerve/Save Offsets** to true.
@@ -50,7 +50,9 @@ The offsets are used right away and saved on the roboRIO (`/home/lvuser/swerve_o
 
 If calibration says an encoder is "not working", check that encoder's wiring (DIO ports 0 - 3: front left, front right, rear left, rear right).
 
-**Checking the result:** enable Teleop (still on blocks) and push the left stick gently forward.  All four wheels should point forward and spin so the robot would drive forward.  If one wheel spins backward, that module's bevel gear was facing the other way: disable, turn that wheel 180°, and calibrate again.
+**Checking the result:** enable Teleop (still on blocks) and push the left stick gently forward.  All four wheels should point forward and spin so the robot would drive forward.  If one side spins backward, disable, turn that side's wheels 180°, and calibrate again; if all four spin backward, turn all four 180° and calibrate again.
+
+Note that when the robot is enabled, every module turns to its "forward" angle (0°).  A wheel that was left pointing backward (180°) will turn half a revolution and then stop; this is normal.
 
 ### Dashboard values
 
