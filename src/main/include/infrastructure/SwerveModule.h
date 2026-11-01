@@ -280,9 +280,11 @@ public:
   void ClearFaults() noexcept;
 
 private:
-  void SetTurningPositionPID() noexcept;
-  void SetDrivePositionPID() noexcept;
-  void SetDriveVelocityPID() noexcept;
+  // If `apply` is false, the settings are only added to the config (to be
+  // applied later); otherwise, they are applied immediately.
+  void SetTurningPositionPID(const bool apply = true) noexcept;
+  void SetDrivePositionPID(const bool apply = true) noexcept;
+  void SetDriveVelocityPID(const bool apply = true) noexcept;
   void SetStatusFramePeriods(GraphSelection graphSelection) noexcept;
 
   const std::string m_name;

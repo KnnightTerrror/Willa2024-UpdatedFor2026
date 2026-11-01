@@ -86,6 +86,13 @@ SwerveModule::SwerveModule(
         {"kPositionConversionFactor", double{360.0}},
         {"kVelocityConversionFactor", double{360.0 / 60.0}},
     });
+
+    // Closed-loop gains (from Constants.h; these are the same values and units
+    // as in 2024, used by Test Mode drive-distance patterns).  The motor
+    // controller is reset to factory defaults when configured, so these must
+    // be part of the config.
+    SetTurningPositionPID(false);
+
     m_turningMotor->ApplyConfig(false);
 
     // Motor is in turns and turns/minute (RPM), do meters and meters/second.
@@ -95,6 +102,10 @@ SwerveModule::SwerveModule(
         {"kPositionConversionFactor", double{physical::kDriveMetersPerRotation}},
         {"kVelocityConversionFactor", double{physical::kDriveMetersPerRotation / 60.0}},
     });
+
+    SetDrivePositionPID(false);
+    SetDriveVelocityPID(false);
+
     m_driveMotor->ApplyConfig(false);
 
     std::printf(" OK.\n");
@@ -238,6 +249,16 @@ void SwerveModule::Periodic() noexcept
         m_turningFault = false;
         m_turningErrorSinceFPGATime = FPGATime;
         m_rioPIDController->Reset(m_turningPosition);
+
+        // Resume driving as last commanded.
+        if (m_distanceVelocityNot)
+        {
+            SetDriveDistance(m_commandedDistance);
+        }
+        else
+        {
+            SetDriveVelocity(m_commandedVelocity);
+        }
     }
 
     units::angle::degree_t turningError = m_turningPosition - m_commandedHeading;
@@ -929,7 +950,7 @@ void SwerveModule::DriveVelocityPID(double P, double I, double IZ, double IM, do
     SetDriveVelocityPID();
 }
 
-void SwerveModule::SetTurningPositionPID() noexcept
+void SwerveModule::SetTurningPositionPID(const bool apply) noexcept
 {
     // This isn't needed, but would be if turning PID is on SPARK MAX
     m_turningMotor->AddConfig(SmartMotorBase::ConfigMap{
@@ -945,10 +966,13 @@ void SwerveModule::SetTurningPositionPID() noexcept
         {"kSmartMotionAccelStrategy_0", uint{0}},
     });
 
-    m_turningMotor->ApplyConfig(false);
+    if (apply)
+    {
+        m_turningMotor->ApplyConfig(false);
+    }
 }
 
-void SwerveModule::SetDrivePositionPID() noexcept
+void SwerveModule::SetDrivePositionPID(const bool apply) noexcept
 {
     m_driveMotor->AddConfig(SmartMotorBase::ConfigMap{
         {"kP_0", double{m_drivePosition_P}},
@@ -963,10 +987,13 @@ void SwerveModule::SetDrivePositionPID() noexcept
         {"kSmartMotionAccelStrategy_0", uint{0}},
     });
 
-    m_driveMotor->ApplyConfig(false);
+    if (apply)
+    {
+        m_driveMotor->ApplyConfig(false);
+    }
 }
 
-void SwerveModule::SetDriveVelocityPID() noexcept
+void SwerveModule::SetDriveVelocityPID(const bool apply) noexcept
 {
     m_driveMotor->AddConfig(SmartMotorBase::ConfigMap{
         {"kP_1", double{m_driveVelocity_P}},
@@ -981,7 +1008,10 @@ void SwerveModule::SetDriveVelocityPID() noexcept
         {"kSmartMotionAccelStrategy_1", uint{1}},
     });
 
-    m_driveMotor->ApplyConfig(false);
+    if (apply)
+    {
+        m_driveMotor->ApplyConfig(false);
+    }
 }
 
 void SwerveModule::SetStatusFramePeriods(GraphSelection graphSelection) noexcept

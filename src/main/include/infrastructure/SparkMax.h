@@ -44,12 +44,15 @@ namespace SparkMaxFactory
 // the factory default, there is no reason to list parameters that should be
 // at their default values.
 
-// The motor controller may reset (brownout, etc.).  Periodic() watches for
-// the "has reset" warning; when it is seen, the config is re-sent
-// asynchronously (ConfigureAsync(), which does not hold up the robot loop),
-// so a controller that missed the config at startup gets it, and anything
-// that was not saved to flash is restored.  Config is never saved to flash
-// while the robot is enabled (REVLib refuses).
+// The motor controller may reset (brownout, etc.); since the config was saved
+// to flash at startup, it comes back up correctly configured on its own (the
+// reset is counted, for reporting).  If the config could not be applied at
+// startup (e.g. the controller was not ready yet), Periodic() retries it
+// every 5 seconds, at most 3 times, but only while the robot is disabled
+// (this waits for the controller to respond).  Periodic() otherwise does no
+// slow CAN round trips.  Config is never saved to flash while the robot is
+// enabled (REVLib refuses), and is only reset to factory defaults while
+// disabled (so a motor never briefly runs with factory defaults).
 
 // The table below documents the managed configuration parameters, with their
 // types and default values (this is also the list of keys accepted by

@@ -125,13 +125,18 @@ void ArmSubsystem::Periodic() noexcept
     // units::angle::degree_t rotatedShoulderAngle = shoulderAngle_;
 
     // While disabled, the arm cannot move, so keep the motion profile at the
-    // arm's actual position (keeping the goal).  Otherwise, the profile keeps
-    // advancing toward the goal, and the arm lurches when the robot is
-    // enabled instead of moving smoothly.
-    if (frc::DriverStation::IsDisabled())
+    // arm's actual position (keeping the goal), including on the first
+    // iteration after being enabled.  Otherwise, the profile keeps advancing
+    // toward the goal, and the arm lurches when the robot is enabled instead
+    // of moving smoothly.
+    const bool disabled = frc::DriverStation::IsDisabled();
+
+    if (disabled || wasDisabled_)
     {
         shoulderPIDController_->Reset(shoulderAngle_);
     }
+
+    wasDisabled_ = disabled;
 
     double shoulder = shoulderPIDController_->Calculate(shoulderAngle_);
 

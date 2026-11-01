@@ -84,6 +84,7 @@ private:
   bool status_{true};
   bool print_{false}; // Print arm status every iteration (debugging only; slows the robot loop)
   bool test_{false};
+  bool wasDisabled_{true};
 
   HeadingGyro shoulderAngleGyro_;
 

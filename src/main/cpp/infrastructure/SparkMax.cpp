@@ -111,7 +111,7 @@ namespace
         void DoSafely(const char *const what, std::function<void()> work) noexcept;
         bool AnyError(const rev::REVLibError returnCode) noexcept;
         std::string BuildConfig(SparkBaseConfig &sparkConfig) noexcept;
-        void Configure(const bool burn, const bool async = false) noexcept;
+        void Configure(const bool burn) noexcept;
 
         // Parameters supplied though ctor.
         const std::string name_;
@@ -156,17 +156,16 @@ namespace
 
         // Last seen state of the sticky "has reset" warning.
         bool hasReset_{false};
-        bool firstPeriodic_{true};
+
+        // Retrying config that could not be applied at startup.
+        uint64_t configRetryFPGATime_{frc::RobotController::GetFPGATime()};
+        int configRetries_{0};
 
         // Current configuration verification status.
         bool configGood_{false};
 
         // Config has been saved to flash (at least once since startup).
         bool persisted_{false};
-
-        // Config object for the last ConfigureAsync(), kept alive until the
-        // next one (REVLib may still be sending it after the call returns).
-        std::unique_ptr<SparkBaseConfig> asyncConfig_;
 
         // Current idle mode (there is no cheap way to read this back).
         IdleMode idleMode_{IdleMode::kBrake};
@@ -739,7 +738,7 @@ std::string SparkMotor::BuildConfig(SparkBaseConfig &sparkConfig) noexcept
     return reporting;
 }
 
-void SparkMotor::Configure(const bool burn, const bool async) noexcept
+void SparkMotor::Configure(const bool burn) noexcept
 {
     if (!motor_)
     {
@@ -750,20 +749,7 @@ void SparkMotor::Configure(const bool burn, const bool async) noexcept
     SparkMaxConfig maxConfig;
     SparkFlexConfig flexConfig;
 
-    if (async)
-    {
-        if (flex_not_max_)
-        {
-            asyncConfig_ = std::make_unique<SparkFlexConfig>();
-        }
-        else
-        {
-            asyncConfig_ = std::make_unique<SparkMaxConfig>();
-        }
-
-        sparkConfig = asyncConfig_.get();
-    }
-    else if (flex_not_max_)
+    if (flex_not_max_)
     {
         sparkConfig = &flexConfig;
     }
@@ -791,24 +777,13 @@ void SparkMotor::Configure(const bool burn, const bool async) noexcept
     // Otherwise, only save when asked.  REVLib refuses to save while the robot
     // is enabled, so never try then.
     const bool disabled = frc::DriverStation::IsDisabled();
-    const bool persist = (burn || !persisted_) && disabled && !async;
+    const bool persist = (burn || !persisted_) && disabled;
     const rev::ResetMode resetMode = disabled ? rev::ResetMode::kResetSafeParameters : rev::ResetMode::kNoResetSafeParameters;
     const rev::PersistMode persistMode = persist ? rev::PersistMode::kPersistParameters : rev::PersistMode::kNoPersistParameters;
 
     if (burn && !disabled)
     {
         std::printf("SparkMax[%i] %s config not saved to flash: disable the robot first.\n", canId_, name_.c_str());
-    }
-
-    // Asynchronous: does not wait for the controller to respond, so this does
-    // not hold up the robot loop (used from Periodic()).  Since there is no
-    // confirmation, this does not change the config status.
-    if (async)
-    {
-        DoSafely("ConfigureAsync", [&]() -> void
-                 { (void)AnyError(motor_->ConfigureAsync(*sparkConfig, resetMode, rev::PersistMode::kNoPersistParameters)); });
-
-        return;
     }
 
     configGood_ = false;
@@ -1026,8 +1001,9 @@ void SparkMotor::Periodic() noexcept
     // events, sticky faults/warnings are used.  There is no expectation that
     // this information is instantaneously accurate, it is only used for
     // reporting and to detect any motor controller reboots.  This is cleared
-    // by ClearFaults().  Nothing here does any (slow) CAN round trip, so this
-    // never holds up the robot loop.
+    // by ClearFaults().  Apart from the (disabled only) config retry below,
+    // nothing here does any (slow) CAN round trip, so this never holds up the
+    // robot loop.
     bool hasReset{false};
 
     DoSafely("GetStickyFaults/GetStickyWarnings", [&]() -> void
@@ -1039,47 +1015,34 @@ void SparkMotor::Periodic() noexcept
         warningBits_ |= warnings.rawBits;
         hasReset = warnings.hasReset; });
 
-    // If the controller has reset (power on, power loss, brownout, etc.),
-    // re-send the config.  Normally, the config was saved to flash at startup
-    // and the controller comes back up with it on its own, but this covers a
-    // controller that was not ready (or missed the config) at startup, plus
-    // any settings changed since.  This is asynchronous, so it does not hold
-    // up the robot loop.  Note that the first Periodic() call normally sees
-    // this, since controllers report "has reset" after powering on.
-    if (firstPeriodic_)
-    {
-        // The power-on reset; the config was just applied at construction.
-        // Only re-send it if that did not work.
-        firstPeriodic_ = false;
-
-        if (configGood_)
-        {
-            hasReset_ = hasReset;
-        }
-    }
-
+    // Count controller resets (for reporting only).  Nothing needs to be done
+    // here: the config was saved to flash at startup, so a controller that
+    // resets (brownout, etc.) comes back up with it on its own.
     if (hasReset && !hasReset_)
     {
         ++resets_;
-
-        std::printf("SparkMax[%i] %s has reset (power loss or brownout?); sending config.\n", canId_, name_.c_str());
-
-        Configure(false, true);
-
-        // So the next reset can be detected, clear the sticky reset warning.
-        // This waits for the controller to respond, so only do it while
-        // disabled (while enabled, the config saved to flash covers any
-        // further reset).
-        if (frc::DriverStation::IsDisabled())
-        {
-            DoSafely("ClearFaults", [&]() -> void
-                     { (void)AnyError(motor_->ClearFaults()); });
-
-            hasReset = false;
-        }
     }
 
     hasReset_ = hasReset;
+
+    // If the config could not be applied at startup (for example, the
+    // controller was not ready yet), try again, every 5 seconds, at most 3
+    // times.  This waits for the controller to respond, so only do it while
+    // the robot is disabled.
+    if (!configGood_ && configRetries_ < 3 && frc::DriverStation::IsDisabled())
+    {
+        const uint64_t FPGATime = frc::RobotController::GetFPGATime();
+
+        if (FPGATime - configRetryFPGATime_ >= 5000000)
+        {
+            configRetryFPGATime_ = FPGATime;
+            ++configRetries_;
+
+            std::printf("SparkMax[%i] %s retrying config (%i of 3).\n", canId_, name_.c_str(), configRetries_);
+
+            Configure(false);
+        }
+    }
 }
 
 void SparkMotor::SetIdleMode(const SmartMotorBase::IdleMode mode) noexcept
