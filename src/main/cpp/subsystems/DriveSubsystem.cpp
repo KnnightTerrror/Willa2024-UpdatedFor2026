@@ -266,10 +266,8 @@ bool DriveSubsystem::CalibrateAlignmentOffsets() noexcept
 
   const bool saved = !file.fail();
 
-  if (saved)
-  {
-    frc::SmartDashboard::PutString("Swerve/Offsets Source", "Saved calibration (" + AlignmentOffsetsPath() + ")");
-  }
+  frc::SmartDashboard::PutString("Swerve/Offsets Source", saved ? "Saved calibration (" + AlignmentOffsetsPath() + ")"
+                                                              : std::string("Calibration (NOT saved; lost on reboot)"));
 
   std::printf("**** Swerve calibration: offsets applied%s.  To make these the defaults, put these in Constants.h:\n"
               "    constexpr int kFrontLeftAlignmentOffset = %+i;\n"

@@ -27,9 +27,11 @@ namespace SparkMaxFactory
 // not need to change), but translates the map into a REVLib config object and
 // applies it with a single Configure() call.
 
-// Every ApplyConfig() first resets all "safe" parameters to factory defaults
-// and then applies the config, so the controller always ends up with exactly
-// this config (and nothing left over from other code).  The first
+// Every ApplyConfig() while disabled first resets all "safe" parameters to
+// factory defaults and then applies the config, so the controller ends up
+// with exactly this config (and nothing left over from other code).  While
+// enabled, the reset is skipped (so the motor never briefly runs with factory
+// defaults, e.g. not inverted).  The first
 // ApplyConfig() (at construction, while the robot is disabled) also saves the
 // config to flash, as REV recommends, so the controller comes up correctly
 // configured after a power cycle.  After that, ApplyConfig(false) does not

@@ -2,6 +2,7 @@
 
 #include "Constants.h"
 
+#include <frc/DriverStation.h>
 #include <frc/shuffleboard/Shuffleboard.h>
 #include <frc/shuffleboard/ShuffleboardLayout.h>
 #include <frc/shuffleboard/ShuffleboardTab.h>
@@ -67,18 +68,6 @@ void ArmSubsystem::Reset() noexcept
     shoulderPIDController_->Reset(shoulderAngle_);
 }
 
-void ArmSubsystem::ResetProfile() noexcept
-{
-    const auto shoulderSensor = shoulderSensor_->GetAbsolutePosition();
-
-    if (shoulderSensor)
-    {
-        shoulderAngle_ = shoulderSensor.value();
-    }
-
-    shoulderPIDController_->Reset(shoulderAngle_);
-}
-
 void ArmSubsystem::SetShoulderAngle(units::angle::degree_t angle) noexcept
 {
 
@@ -134,6 +123,15 @@ void ArmSubsystem::Periodic() noexcept
 
     shoulderAngleGyro_.Set(shoulderAngle_.value());
     // units::angle::degree_t rotatedShoulderAngle = shoulderAngle_;
+
+    // While disabled, the arm cannot move, so keep the motion profile at the
+    // arm's actual position (keeping the goal).  Otherwise, the profile keeps
+    // advancing toward the goal, and the arm lurches when the robot is
+    // enabled instead of moving smoothly.
+    if (frc::DriverStation::IsDisabled())
+    {
+        shoulderPIDController_->Reset(shoulderAngle_);
+    }
 
     double shoulder = shoulderPIDController_->Calculate(shoulderAngle_);
 

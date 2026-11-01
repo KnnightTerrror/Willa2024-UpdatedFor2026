@@ -40,12 +40,6 @@ public:
   }
   void Reset() noexcept;
 
-  // Restart the motion profile from the current arm position, keeping the
-  // current goal.  While disabled, the profile keeps advancing toward the
-  // goal even though the arm cannot move; without this, the arm lurches when
-  // the robot is enabled.
-  void ResetProfile() noexcept;
-
   void SetShoulder(double percent) noexcept
   {
     shoulderControlUI_ = percent;

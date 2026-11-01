@@ -571,8 +571,6 @@ void RobotContainer::DisabledInit() noexcept
 
 void RobotContainer::DisabledExit() noexcept
 {
-  arm_.ResetProfile();
-
   m_driveSubsystem.ClearFaults();
 
   m_driveSubsystem.ResetEncoders();

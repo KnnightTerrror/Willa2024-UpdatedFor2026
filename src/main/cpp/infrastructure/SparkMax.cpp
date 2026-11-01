@@ -156,6 +156,7 @@ namespace
 
         // Last seen state of the sticky "has reset" warning.
         bool hasReset_{false};
+        bool firstPeriodic_{true};
 
         // Current configuration verification status.
         bool configGood_{false};
@@ -740,8 +741,6 @@ std::string SparkMotor::BuildConfig(SparkBaseConfig &sparkConfig) noexcept
 
 void SparkMotor::Configure(const bool burn, const bool async) noexcept
 {
-    configGood_ = false;
-
     if (!motor_)
     {
         return;
@@ -780,18 +779,20 @@ void SparkMotor::Configure(const bool burn, const bool async) noexcept
         std::printf("SparkMax[%i] %s config: %s.\n", canId_, name_.c_str(), configReporting_.c_str());
     }
 
-    // Always reset all parameters to their factory defaults first, so that
-    // only the managed parameters differ from the defaults.  This clears out
-    // anything left on the controller by other code (inversion, follower
+    // When disabled, reset all parameters to their factory defaults first, so
+    // that only the managed parameters differ from the defaults.  This clears
+    // out anything left on the controller by other code (inversion, follower
     // mode, current limits, etc.), which could otherwise make motors run
-    // unexpectedly.  The first time the config is applied (at startup, when
-    // the robot is disabled), it is also saved to flash, so the controller
-    // comes back up correctly configured after a brownout or power cycle;
-    // this is what REV recommends.  Otherwise, only save when asked.  REVLib
-    // refuses to save while the robot is enabled, so never try then.
+    // unexpectedly.  This is not done while enabled, because the motor would
+    // briefly run with factory defaults (e.g. not inverted).  The first time
+    // the config is applied (at startup, when the robot is disabled), it is
+    // also saved to flash, so the controller comes back up correctly
+    // configured after a brownout or power cycle; this is what REV recommends.
+    // Otherwise, only save when asked.  REVLib refuses to save while the robot
+    // is enabled, so never try then.
     const bool disabled = frc::DriverStation::IsDisabled();
     const bool persist = (burn || !persisted_) && disabled && !async;
-    const rev::ResetMode resetMode = rev::ResetMode::kResetSafeParameters;
+    const rev::ResetMode resetMode = disabled ? rev::ResetMode::kResetSafeParameters : rev::ResetMode::kNoResetSafeParameters;
     const rev::PersistMode persistMode = persist ? rev::PersistMode::kPersistParameters : rev::PersistMode::kNoPersistParameters;
 
     if (burn && !disabled)
@@ -800,18 +801,17 @@ void SparkMotor::Configure(const bool burn, const bool async) noexcept
     }
 
     // Asynchronous: does not wait for the controller to respond, so this does
-    // not hold up the robot loop (used from Periodic()).
+    // not hold up the robot loop (used from Periodic()).  Since there is no
+    // confirmation, this does not change the config status.
     if (async)
     {
         DoSafely("ConfigureAsync", [&]() -> void
-                 {
-            if (!AnyError(motor_->ConfigureAsync(*sparkConfig, resetMode, rev::PersistMode::kNoPersistParameters)))
-            {
-                configGood_ = configReporting_.empty();
-            } });
+                 { (void)AnyError(motor_->ConfigureAsync(*sparkConfig, resetMode, rev::PersistMode::kNoPersistParameters)); });
 
         return;
     }
+
+    configGood_ = false;
 
     DoSafely("Configure", [&]() -> void
              {
@@ -1046,13 +1046,37 @@ void SparkMotor::Periodic() noexcept
     // any settings changed since.  This is asynchronous, so it does not hold
     // up the robot loop.  Note that the first Periodic() call normally sees
     // this, since controllers report "has reset" after powering on.
+    if (firstPeriodic_)
+    {
+        // The power-on reset; the config was just applied at construction.
+        // Only re-send it if that did not work.
+        firstPeriodic_ = false;
+
+        if (configGood_)
+        {
+            hasReset_ = hasReset;
+        }
+    }
+
     if (hasReset && !hasReset_)
     {
         ++resets_;
 
-        std::printf("SparkMax[%i] %s has reset (normal at power-on; otherwise power loss or brownout); sending config.\n", canId_, name_.c_str());
+        std::printf("SparkMax[%i] %s has reset (power loss or brownout?); sending config.\n", canId_, name_.c_str());
 
         Configure(false, true);
+
+        // So the next reset can be detected, clear the sticky reset warning.
+        // This waits for the controller to respond, so only do it while
+        // disabled (while enabled, the config saved to flash covers any
+        // further reset).
+        if (frc::DriverStation::IsDisabled())
+        {
+            DoSafely("ClearFaults", [&]() -> void
+                     { (void)AnyError(motor_->ClearFaults()); });
+
+            hasReset = false;
+        }
     }
 
     hasReset_ = hasReset;
