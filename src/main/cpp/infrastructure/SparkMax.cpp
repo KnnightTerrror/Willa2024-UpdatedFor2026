@@ -154,10 +154,12 @@ namespace
         ConfigMap config_;
         std::string configReporting_;
 
-        // Last seen state of the sticky "has reset" warning.
-        bool hasReset_{false};
+        // Last seen state of the sticky "has reset" warning (this is set at
+        // power-on, which is not counted as a reset).
+        bool hasReset_{true};
 
-        // Retrying config that could not be applied at startup.
+        // Retrying config that could not be sent to the controller.
+        bool configFailed_{false};
         uint64_t configRetryFPGATime_{frc::RobotController::GetFPGATime()};
         int configRetries_{0};
 
@@ -792,16 +794,17 @@ void SparkMotor::Configure(const bool burn) noexcept
              {
         if (AnyError(motor_->Configure(*sparkConfig, resetMode, persistMode)))
         {
+            // Periodic() retries this, while disabled.
+            configFailed_ = true;
+
             std::printf("SparkMax[%i] %s %s config: FAIL (%s)!\n", canId_, name_.c_str(), persist ? "burn" : "apply", ErrorName(lastError_));
 
-            // Saving to flash is refused while the robot is enabled; make
-            // sure the config is at least applied.
-            if (!persist || AnyError(motor_->Configure(*sparkConfig, resetMode, rev::PersistMode::kNoPersistParameters)))
-            {
-                return;
-            }
+            return;
         }
-        else if (persist)
+
+        configFailed_ = false;
+
+        if (persist)
         {
             persisted_ = true;
 
@@ -1015,21 +1018,30 @@ void SparkMotor::Periodic() noexcept
         warningBits_ |= warnings.rawBits;
         hasReset = warnings.hasReset; });
 
-    // Count controller resets (for reporting only).  Nothing needs to be done
-    // here: the config was saved to flash at startup, so a controller that
-    // resets (brownout, etc.) comes back up with it on its own.
+    // Count controller resets (for reporting).  Normally, nothing else needs
+    // to be done: the config was saved to flash at startup, so a controller
+    // that resets (brownout, etc.) comes back up with it on its own.  But if
+    // the config could not be sent at startup (for example, the controller was
+    // not powered or not ready yet), a controller showing up now needs it:
+    // allow the retries below to start over.
     if (hasReset && !hasReset_)
     {
         ++resets_;
+
+        std::printf("SparkMax[%i] %s has reset.\n", canId_, name_.c_str());
+
+        if (configFailed_)
+        {
+            configRetries_ = 0;
+        }
     }
 
     hasReset_ = hasReset;
 
-    // If the config could not be applied at startup (for example, the
-    // controller was not ready yet), try again, every 5 seconds, at most 3
-    // times.  This waits for the controller to respond, so only do it while
-    // the robot is disabled.
-    if (!configGood_ && configRetries_ < 3 && frc::DriverStation::IsDisabled())
+    // If the config could not be sent to the controller, try again, every 5
+    // seconds, at most 10 times.  This waits for the controller to respond,
+    // so only do it while the robot is disabled.
+    if (configFailed_ && configRetries_ < 10 && frc::DriverStation::IsDisabled())
     {
         const uint64_t FPGATime = frc::RobotController::GetFPGATime();
 
@@ -1038,7 +1050,7 @@ void SparkMotor::Periodic() noexcept
             configRetryFPGATime_ = FPGATime;
             ++configRetries_;
 
-            std::printf("SparkMax[%i] %s retrying config (%i of 3).\n", canId_, name_.c_str(), configRetries_);
+            std::printf("SparkMax[%i] %s retrying config (%i of 10).\n", canId_, name_.c_str(), configRetries_);
 
             Configure(false);
         }

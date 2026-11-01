@@ -46,9 +46,11 @@ namespace SparkMaxFactory
 
 // The motor controller may reset (brownout, etc.); since the config was saved
 // to flash at startup, it comes back up correctly configured on its own (the
-// reset is counted, for reporting).  If the config could not be applied at
-// startup (e.g. the controller was not ready yet), Periodic() retries it
-// every 5 seconds, at most 3 times, but only while the robot is disabled
+// reset is counted, for reporting).  Settings changed after startup without
+// saving (e.g. SetIdleMode(), Test Mode tuning) are lost by such a reset.  If
+// the config could not be sent to the controller (e.g. it was not powered or
+// ready yet), Periodic() retries it every 5 seconds, at most 10 times (again,
+// if the controller shows up later), but only while the robot is disabled
 // (this waits for the controller to respond).  Periodic() otherwise does no
 // slow CAN round trips.  Config is never saved to flash while the robot is
 // enabled (REVLib refuses), and is only reset to factory defaults while
