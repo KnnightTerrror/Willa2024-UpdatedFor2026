@@ -1,6 +1,7 @@
 #include "infrastructure/SparkMax.h"
 
 #include <frc/DataLogManager.h>
+#include <frc/DriverStation.h>
 #include <frc/RobotController.h>
 #include <frc/shuffleboard/BuiltInWidgets.h>
 #include <frc/shuffleboard/SimpleWidget.h>
@@ -110,7 +111,7 @@ namespace
         void DoSafely(const char *const what, std::function<void()> work) noexcept;
         bool AnyError(const rev::REVLibError returnCode) noexcept;
         std::string BuildConfig(SparkBaseConfig &sparkConfig) noexcept;
-        void Configure(const bool burn) noexcept;
+        void Configure(const bool burn, const bool async = false) noexcept;
 
         // Parameters supplied though ctor.
         const std::string name_;
@@ -161,6 +162,10 @@ namespace
 
         // Config has been saved to flash (at least once since startup).
         bool persisted_{false};
+
+        // Config object for the last ConfigureAsync(), kept alive until the
+        // next one (REVLib may still be sending it after the call returns).
+        std::unique_ptr<SparkBaseConfig> asyncConfig_;
 
         // Current idle mode (there is no cheap way to read this back).
         IdleMode idleMode_{IdleMode::kBrake};
@@ -733,7 +738,7 @@ std::string SparkMotor::BuildConfig(SparkBaseConfig &sparkConfig) noexcept
     return reporting;
 }
 
-void SparkMotor::Configure(const bool burn) noexcept
+void SparkMotor::Configure(const bool burn, const bool async) noexcept
 {
     configGood_ = false;
 
@@ -746,7 +751,20 @@ void SparkMotor::Configure(const bool burn) noexcept
     SparkMaxConfig maxConfig;
     SparkFlexConfig flexConfig;
 
-    if (flex_not_max_)
+    if (async)
+    {
+        if (flex_not_max_)
+        {
+            asyncConfig_ = std::make_unique<SparkFlexConfig>();
+        }
+        else
+        {
+            asyncConfig_ = std::make_unique<SparkMaxConfig>();
+        }
+
+        sparkConfig = asyncConfig_.get();
+    }
+    else if (flex_not_max_)
     {
         sparkConfig = &flexConfig;
     }
@@ -769,10 +787,31 @@ void SparkMotor::Configure(const bool burn) noexcept
     // unexpectedly.  The first time the config is applied (at startup, when
     // the robot is disabled), it is also saved to flash, so the controller
     // comes back up correctly configured after a brownout or power cycle;
-    // this is what REV recommends.  Otherwise, only save when asked.
-    const bool persist = burn || !persisted_;
+    // this is what REV recommends.  Otherwise, only save when asked.  REVLib
+    // refuses to save while the robot is enabled, so never try then.
+    const bool disabled = frc::DriverStation::IsDisabled();
+    const bool persist = (burn || !persisted_) && disabled && !async;
     const rev::ResetMode resetMode = rev::ResetMode::kResetSafeParameters;
     const rev::PersistMode persistMode = persist ? rev::PersistMode::kPersistParameters : rev::PersistMode::kNoPersistParameters;
+
+    if (burn && !disabled)
+    {
+        std::printf("SparkMax[%i] %s config not saved to flash: disable the robot first.\n", canId_, name_.c_str());
+    }
+
+    // Asynchronous: does not wait for the controller to respond, so this does
+    // not hold up the robot loop (used from Periodic()).
+    if (async)
+    {
+        DoSafely("ConfigureAsync", [&]() -> void
+                 {
+            if (!AnyError(motor_->ConfigureAsync(*sparkConfig, resetMode, rev::PersistMode::kNoPersistParameters)))
+            {
+                configGood_ = configReporting_.empty();
+            } });
+
+        return;
+    }
 
     DoSafely("Configure", [&]() -> void
              {
@@ -1000,14 +1039,20 @@ void SparkMotor::Periodic() noexcept
         warningBits_ |= warnings.rawBits;
         hasReset = warnings.hasReset; });
 
-    // If the controller has reset (power loss, brownout, etc.), just count and
-    // report it.  The config was saved to flash at startup, so the controller
-    // comes back up with it on its own; there is no need to re-apply it here.
+    // If the controller has reset (power on, power loss, brownout, etc.),
+    // re-send the config.  Normally, the config was saved to flash at startup
+    // and the controller comes back up with it on its own, but this covers a
+    // controller that was not ready (or missed the config) at startup, plus
+    // any settings changed since.  This is asynchronous, so it does not hold
+    // up the robot loop.  Note that the first Periodic() call normally sees
+    // this, since controllers report "has reset" after powering on.
     if (hasReset && !hasReset_)
     {
         ++resets_;
 
-        std::printf("SparkMax[%i] %s has reset (normal at power-on; otherwise power loss or brownout).\n", canId_, name_.c_str());
+        std::printf("SparkMax[%i] %s has reset (normal at power-on; otherwise power loss or brownout); sending config.\n", canId_, name_.c_str());
+
+        Configure(false, true);
     }
 
     hasReset_ = hasReset;

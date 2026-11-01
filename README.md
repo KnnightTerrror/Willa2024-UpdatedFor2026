@@ -24,7 +24,9 @@ Use the **2026 WPILib VS Code** to build and deploy.  Use "WPILib: Manage Vendor
 * **PathPlanner.**  Removed.  The 2024 PathPlanner setup was already commented out and no autos used it; the timed autos (button board button 20 selects Left/Right) are unchanged.  To add PathPlanner back, install PathplannerLib 2026 with "WPILib: Manage Vendor Libraries" (this needs an internet connection that can reach `3015rangerrobotics.github.io`), then call `AutoBuilder::configure()` from the drive subsystem; `DriveSubsystem::GetSpeed()`, `Drive(ChassisSpeeds)`, `GetPose()` and `ResetOdometry()` provide what it needs.
 * **Test Mode config burning.**  `RobotContainer::TestExit()` is called on entry to every mode; it now only does its work (including saving motor controller config to flash) if Test Mode actually ran.  Before, it tried to burn flash at the start of every Autonomous and Teleop.  REVLib 2026 refuses to do that while enabled.
 
-* **Motor controller settings are reset on startup.**  Every time the code configures a SPARK MAX/FLEX, it first resets the controller to factory defaults, so nothing left over from other code (inversion, follower mode, current limits, ...) can affect it.  The config is also saved to the controller's flash once at startup (as REV recommends), so it comes back correctly after a brownout.
+* **Motor controller settings are reset on startup.**  Every time the code configures a SPARK MAX/FLEX, it first resets the controller to factory defaults, so nothing left over from other code (inversion, follower mode, current limits, ...) can affect it.  This also means settings made only in the REV Hardware Client are not kept; everything comes from the code (including the closed-loop PID gains in `Constants.h`).  The config is saved to the controller's flash once at startup, while disabled (as REV recommends), so it comes back correctly after a brownout; if a controller resets anyway, the code re-sends its config without holding up the robot loop.
+* **Robot loop speed.**  The 2024 code printed to the console every 20 ms (note sensor, arm status, with an arm status string that grew without limit).  These now print only when something changes, which matters a lot for how responsive the robot is.
+* **Arm on enable.**  The arm's motion profile is restarted from the arm's actual position when the robot is enabled, so it moves smoothly to its target instead of lurching.
 
 ## Before running on the robot
 
@@ -46,7 +48,7 @@ To calibrate (the robot must be **disabled**):
    * on the dashboard (SmartDashboard / Shuffleboard / Elastic), set **Swerve/Save Offsets** to true.
 4. Check the **Swerve/Calibration** entry on the dashboard (or the Driver Station console): it shows the new offsets, e.g. `Saved: FL +1427, FR -903, RL +384, RR -205`.
 
-The offsets are used right away and saved on the roboRIO (`/home/lvuser/swerve_offsets.txt`), so they are kept across reboots and code deploys.  The console also prints lines you can paste into `Constants.h` (`kFrontLeftAlignmentOffset`, ...), to make them the defaults; the saved file takes priority over `Constants.h` while it exists.
+The offsets are used right away and saved on the roboRIO (`/home/lvuser/swerve_offsets.txt`), so they are kept across reboots and code deploys.  The console also prints lines you can paste into `Constants.h` (`kFrontLeftAlignmentOffset`, ...).  **While the saved file exists, it overrides `Constants.h`** (the dashboard's **Swerve/Offsets Source** shows which is in use); to go back to `Constants.h`, delete that file on the roboRIO (or just calibrate again).
 
 If calibration says an encoder is "not working", check that encoder's wiring (DIO ports 0 - 3: front left, front right, rear left, rear right).
 
@@ -56,11 +58,11 @@ Note that when the robot is enabled, every module turns to its "forward" angle (
 
 ### Dashboard values
 
-Under **Swerve/** on the dashboard, for each module: **Encoder OK**, **Raw Position** (encoder reading before the offset), **Offset**, **Angle** (degrees, 0 = forward), **Commanded Angle**, and **Turning Fault**; plus **Gyro Heading**.  Turn a wheel by hand while disabled: its **Angle** should change smoothly and go **up** when the wheel turns counter-clockwise (seen from above).
+Under **Swerve/** on the dashboard (updated 10 times a second), for each module: **Encoder OK**, **Raw Position** (encoder reading before the offset), **Offset**, **Angle** (degrees, 0 = forward), **Commanded Angle**, **Turning Fault**, **Drive Volts** and **Drive Speed (mps)**; plus **Gyro Heading**, **Offsets Source** (Constants.h or the saved calibration file) and **Calibration**.  Under **Drive/**: **Slow Mode** and **Field Oriented**.  Turn a wheel by hand while disabled: its **Angle** should change smoothly and go **up** when the wheel turns counter-clockwise (seen from above).
 
 ### Wheels spinning non-stop when enabled
 
-If a module keeps spinning instead of stopping at an angle, its turning motor direction does not match its encoder.  The code now detects this: if a module cannot reach its commanded angle within 2 seconds, it stops that module's turning motor, sets **Turning Fault**, and prints `TURNING FAULT` in the Driver Station console.  The fault clears each time the robot is enabled.  Things to check:
+If a module keeps spinning instead of stopping at an angle, its turning motor direction does not match its encoder.  The code now detects this: if a module cannot reach its commanded angle within 2 seconds, it stops that module's turning **and drive** motors for 2 seconds, sets **Turning Fault**, and prints `TURNING FAULT` in the Driver Station console; then it tries again (so a wheel that was only blocked, e.g. in a pin, recovers by itself).  If the fault keeps coming back:
 
 * If **all four** modules fault, flip `physical::kTurningMotorInverted` in `Constants.h`.
 * If only one module faults, check that module's encoder (Encoder OK) and that its turning motor CAN ID matches `Constants.h` (CAN IDs 2, 4, 6, 8 are turning; 1, 3, 5, 7 are drive).

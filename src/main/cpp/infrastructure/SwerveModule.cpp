@@ -86,6 +86,11 @@ SwerveModule::SwerveModule(
         {"kPositionConversionFactor", double{360.0}},
         {"kVelocityConversionFactor", double{360.0 / 60.0}},
     });
+
+    // Closed-loop gains (from Constants.h).  Each motor controller is reset to
+    // factory defaults when configured, so these must be part of the config.
+    SetTurningPositionPID(false);
+
     m_turningMotor->ApplyConfig(false);
 
     // Motor is in turns and turns/minute (RPM), do meters and meters/second.
@@ -95,6 +100,10 @@ SwerveModule::SwerveModule(
         {"kPositionConversionFactor", double{physical::kDriveMetersPerRotation}},
         {"kVelocityConversionFactor", double{physical::kDriveMetersPerRotation / 60.0}},
     });
+
+    SetDrivePositionPID(false);
+    SetDriveVelocityPID(false);
+
     m_driveMotor->ApplyConfig(false);
 
     std::printf(" OK.\n");
@@ -217,13 +226,25 @@ void SwerveModule::Periodic() noexcept
     // wrong: most likely, the turning motor direction (kTurningMotorInverted)
     // does not match the absolute position sensor, so the PID pushes the
     // wrong way and the module spins continuously.  Rather than letting it
-    // spin, shut off the turning motor (until the next mode starts) and report
-    // the problem.
+    // spin, shut off the turning and drive motors for 2 seconds and report the
+    // problem, then try again (the wheel may only have been blocked, e.g.
+    // during a pin).
+    const uint64_t FPGATime = frc::RobotController::GetFPGATime();
+
     if (m_turningFault)
     {
         m_turningMotor->Stop();
+        m_driveMotor->Stop();
 
-        return;
+        // Try again after 2 seconds (e.g. the wheel was only blocked).
+        if (FPGATime - m_turningFaultFPGATime < 2000000)
+        {
+            return;
+        }
+
+        m_turningFault = false;
+        m_turningErrorSinceFPGATime = FPGATime;
+        m_rioPIDController->Reset(m_turningPosition);
     }
 
     units::angle::degree_t turningError = m_turningPosition - m_commandedHeading;
@@ -237,8 +258,6 @@ void SwerveModule::Periodic() noexcept
         turningError -= 360.0_deg;
     }
 
-    const uint64_t FPGATime = frc::RobotController::GetFPGATime();
-
     if (!frc::DriverStation::IsEnabled() || units::math::abs(turningError) < 45.0_deg || m_turningErrorSinceFPGATime == 0)
     {
         m_turningErrorSinceFPGATime = FPGATime;
@@ -246,11 +265,13 @@ void SwerveModule::Periodic() noexcept
     else if (FPGATime - m_turningErrorSinceFPGATime > 2000000) // 2 seconds
     {
         m_turningFault = true;
+        m_turningFaultFPGATime = FPGATime;
         m_turningMotor->Stop();
+        m_driveMotor->Stop();
 
         std::printf("**** Swerve Module (%s) TURNING FAULT: could not reach commanded angle (%.0f deg, at %.0f deg); "
-                    "turning motor stopped.  Check physical::kTurningMotorInverted, the absolute encoder, and the "
-                    "turning motor CAN ID.\n",
+                    "motors stopped for 2 seconds.  If this keeps happening, check physical::kTurningMotorInverted, "
+                    "the absolute encoder, and the turning motor CAN ID.\n",
                     m_name.c_str(), m_commandedHeading.value(), m_turningPosition.value());
 
         return;
@@ -468,6 +489,14 @@ void SwerveModule::SetDriveVelocity(units::velocity::meters_per_second_t velocit
 
     if (m_testModeControl || m_testModeDriveVoltage != 0.0)
     {
+        return;
+    }
+
+    // Don't drive a module that can't steer (see Periodic()).
+    if (m_turningFault)
+    {
+        m_driveMotor->Stop();
+
         return;
     }
 
@@ -904,7 +933,7 @@ void SwerveModule::DriveVelocityPID(double P, double I, double IZ, double IM, do
     SetDriveVelocityPID();
 }
 
-void SwerveModule::SetTurningPositionPID() noexcept
+void SwerveModule::SetTurningPositionPID(const bool apply) noexcept
 {
     // This isn't needed, but would be if turning PID is on SPARK MAX
     m_turningMotor->AddConfig(SmartMotorBase::ConfigMap{
@@ -920,10 +949,13 @@ void SwerveModule::SetTurningPositionPID() noexcept
         {"kSmartMotionAccelStrategy_0", uint{0}},
     });
 
-    m_turningMotor->ApplyConfig(false);
+    if (apply)
+    {
+        m_turningMotor->ApplyConfig(false);
+    }
 }
 
-void SwerveModule::SetDrivePositionPID() noexcept
+void SwerveModule::SetDrivePositionPID(const bool apply) noexcept
 {
     m_driveMotor->AddConfig(SmartMotorBase::ConfigMap{
         {"kP_0", double{m_drivePosition_P}},
@@ -938,10 +970,13 @@ void SwerveModule::SetDrivePositionPID() noexcept
         {"kSmartMotionAccelStrategy_0", uint{0}},
     });
 
-    m_driveMotor->ApplyConfig(false);
+    if (apply)
+    {
+        m_driveMotor->ApplyConfig(false);
+    }
 }
 
-void SwerveModule::SetDriveVelocityPID() noexcept
+void SwerveModule::SetDriveVelocityPID(const bool apply) noexcept
 {
     m_driveMotor->AddConfig(SmartMotorBase::ConfigMap{
         {"kP_1", double{m_driveVelocity_P}},
@@ -956,7 +991,10 @@ void SwerveModule::SetDriveVelocityPID() noexcept
         {"kSmartMotionAccelStrategy_1", uint{1}},
     });
 
-    m_driveMotor->ApplyConfig(false);
+    if (apply)
+    {
+        m_driveMotor->ApplyConfig(false);
+    }
 }
 
 void SwerveModule::SetStatusFramePeriods(GraphSelection graphSelection) noexcept

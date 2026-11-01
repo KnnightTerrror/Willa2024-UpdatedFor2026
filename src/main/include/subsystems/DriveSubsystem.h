@@ -211,6 +211,7 @@ private:
 
   // Send swerve module information to the dashboard (SmartDashboard/Swerve).
   void PublishSwerveTelemetry() noexcept;
+  int m_telemetryCounter{0};
 
   // Test mode method to create graph tab for characterization.
   void CreateGraphTab(SwerveModule::GraphSelection graphSelection) noexcept;

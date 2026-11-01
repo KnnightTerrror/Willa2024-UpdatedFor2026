@@ -171,9 +171,10 @@ public:
   int GetAlignment() noexcept;
   void SetAlignment(const int alignment) noexcept;
 
-  // True if the turning motor has been shut off, because the module was not
-  // able to reach the commanded turning position (see Periodic()).  This is
-  // cleared by ResetTurning() (i.e. whenever a mode starts).
+  // True if the turning and drive motors have been shut off, because the
+  // module was not able to reach the commanded turning position (see
+  // Periodic()).  This clears itself after 2 seconds (to try again), and is
+  // also cleared by ResetTurning() (i.e. whenever a mode starts).
   bool GetTurningFault() const noexcept { return m_turningFault; }
 
   // For telemetry: commanded turning position (degrees), and drive motor
@@ -279,9 +280,11 @@ public:
   void ClearFaults() noexcept;
 
 private:
-  void SetTurningPositionPID() noexcept;
-  void SetDrivePositionPID() noexcept;
-  void SetDriveVelocityPID() noexcept;
+  // If `apply` is false, the settings are only added to the config (to be
+  // applied later); otherwise, they are applied immediately.
+  void SetTurningPositionPID(const bool apply = true) noexcept;
+  void SetDrivePositionPID(const bool apply = true) noexcept;
+  void SetDriveVelocityPID(const bool apply = true) noexcept;
   void SetStatusFramePeriods(GraphSelection graphSelection) noexcept;
 
   const std::string m_name;
@@ -361,6 +364,7 @@ private:
   // Turning runaway protection (see Periodic()).
   bool m_turningFault{false};
   uint64_t m_turningErrorSinceFPGATime{0};
+  uint64_t m_turningFaultFPGATime{0};
   units::angle::degree_t m_turningPosition{0};
 
   // Last commanded turn heading and drive distance/speed.

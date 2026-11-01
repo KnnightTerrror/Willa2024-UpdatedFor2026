@@ -204,6 +204,8 @@ void DriveSubsystem::LoadAlignmentOffsets() noexcept
       rearLeft != NormalizeAlignment(rearLeft) ||
       rearRight != NormalizeAlignment(rearRight))
   {
+    frc::SmartDashboard::PutString("Swerve/Offsets Source", "Constants.h");
+
     std::printf("Swerve alignment offsets: using Constants.h (FL %+i, FR %+i, RL %+i, RR %+i).\n",
                 m_frontLeftSwerveModule->GetAlignment(),
                 m_frontRightSwerveModule->GetAlignment(),
@@ -218,7 +220,10 @@ void DriveSubsystem::LoadAlignmentOffsets() noexcept
   m_rearLeftSwerveModule->SetAlignment(rearLeft);
   m_rearRightSwerveModule->SetAlignment(rearRight);
 
-  std::printf("Swerve alignment offsets: using saved calibration from %s (FL %+i, FR %+i, RL %+i, RR %+i).\n",
+  frc::SmartDashboard::PutString("Swerve/Offsets Source", "Saved calibration (" + AlignmentOffsetsPath() + ")");
+
+  std::printf("Swerve alignment offsets: using saved calibration from %s (FL %+i, FR %+i, RL %+i, RR %+i); "
+              "these override Constants.h.  Delete that file to use Constants.h.\n",
               AlignmentOffsetsPath().c_str(), frontLeft, frontRight, rearLeft, rearRight);
 }
 
@@ -261,6 +266,11 @@ bool DriveSubsystem::CalibrateAlignmentOffsets() noexcept
 
   const bool saved = !file.fail();
 
+  if (saved)
+  {
+    frc::SmartDashboard::PutString("Swerve/Offsets Source", "Saved calibration (" + AlignmentOffsetsPath() + ")");
+  }
+
   std::printf("**** Swerve calibration: offsets applied%s.  To make these the defaults, put these in Constants.h:\n"
               "    constexpr int kFrontLeftAlignmentOffset = %+i;\n"
               "    constexpr int kFrontRightAlignmentOffset = %+i;\n"
@@ -279,26 +289,54 @@ bool DriveSubsystem::CalibrateAlignmentOffsets() noexcept
 
 void DriveSubsystem::PublishSwerveTelemetry() noexcept
 {
+  // 10 times a second is plenty for a dashboard, and keeps this cheap.
+  if (++m_telemetryCounter < 5)
+  {
+    return;
+  }
+
+  m_telemetryCounter = 0;
+
+  // Dashboard keys, built once.
+  struct Keys
+  {
+    std::string encoderOK, rawPosition, offset, angle, commandedAngle, turningFault, driveVolts, driveSpeed;
+  };
+
+  static const std::array<Keys, 4> keys = []() -> std::array<Keys, 4>
+  {
+    std::array<Keys, 4> result;
+    const std::array<std::string, 4> names{"Front Left", "Front Right", "Rear Left", "Rear Right"};
+
+    for (std::size_t i = 0; i < names.size(); ++i)
+    {
+      const std::string prefix = "Swerve/" + names[i] + "/";
+
+      result[i] = Keys{prefix + "Encoder OK", prefix + "Raw Position", prefix + "Offset", prefix + "Angle",
+                       prefix + "Commanded Angle", prefix + "Turning Fault", prefix + "Drive Volts", prefix + "Drive Speed (mps)"};
+    }
+
+    return result;
+  }();
+
   const std::array<SwerveModule *, 4> modules{
       m_frontLeftSwerveModule.get(),
       m_frontRightSwerveModule.get(),
       m_rearLeftSwerveModule.get(),
       m_rearRightSwerveModule.get()};
-  const std::array<std::string, 4> names{"Front Left", "Front Right", "Rear Left", "Rear Right"};
 
   for (std::size_t i = 0; i < modules.size(); ++i)
   {
-    const std::string prefix = "Swerve/" + names[i] + "/";
     const std::optional<int> raw = modules[i]->GetRawAbsolutePosition();
 
-    frc::SmartDashboard::PutBoolean(prefix + "Encoder OK", raw.has_value());
-    frc::SmartDashboard::PutNumber(prefix + "Raw Position", raw.value_or(0));
-    frc::SmartDashboard::PutNumber(prefix + "Offset", modules[i]->GetAlignment());
-    frc::SmartDashboard::PutNumber(prefix + "Angle", modules[i]->GetTurningPosition().value());
-    frc::SmartDashboard::PutNumber(prefix + "Commanded Angle", modules[i]->GetCommandedHeading().value());
-    frc::SmartDashboard::PutBoolean(prefix + "Turning Fault", modules[i]->GetTurningFault());
-    frc::SmartDashboard::PutNumber(prefix + "Drive Volts", modules[i]->GetDriveVoltage().value());
-    frc::SmartDashboard::PutNumber(prefix + "Drive Speed (mps)", modules[i]->GetDriveVelocity().value());
+    frc::SmartDashboard::PutBoolean(keys[i].encoderOK, raw.has_value());
+    frc::SmartDashboard::PutNumber(keys[i].rawPosition, raw.value_or(0));
+    frc::SmartDashboard::PutNumber(keys[i].offset, modules[i]->GetAlignment());
+    frc::SmartDashboard::PutNumber(keys[i].angle, modules[i]->GetTurningPosition().value());
+    frc::SmartDashboard::PutNumber(keys[i].commandedAngle, modules[i]->GetCommandedHeading().value());
+    frc::SmartDashboard::PutBoolean(keys[i].turningFault, modules[i]->GetTurningFault());
+    frc::SmartDashboard::PutNumber(keys[i].driveVolts, modules[i]->GetDriveVoltage().value());
+    frc::SmartDashboard::PutNumber(keys[i].driveSpeed, modules[i]->GetDriveVelocity().value());
   }
 
   frc::SmartDashboard::PutNumber("Swerve/Gyro Heading", GetHeading().value());
