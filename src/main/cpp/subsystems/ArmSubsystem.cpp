@@ -67,6 +67,18 @@ void ArmSubsystem::Reset() noexcept
     shoulderPIDController_->Reset(shoulderAngle_);
 }
 
+void ArmSubsystem::ResetProfile() noexcept
+{
+    const auto shoulderSensor = shoulderSensor_->GetAbsolutePosition();
+
+    if (shoulderSensor)
+    {
+        shoulderAngle_ = shoulderSensor.value();
+    }
+
+    shoulderPIDController_->Reset(shoulderAngle_);
+}
+
 void ArmSubsystem::SetShoulderAngle(units::angle::degree_t angle) noexcept
 {
 
@@ -93,13 +105,27 @@ void ArmSubsystem::Periodic() noexcept
 
     const auto shoulderSensor = shoulderSensor_->GetAbsolutePosition();
 
+    // Start each iteration with no notes (these are only for printing below).
+    notes_.clear();
+
     if (!shoulderSensor)
     {
         shoulderMotor_->Stop();
 
+        // Only print when this changes; printing every iteration (50 times a
+        // second) slows the robot loop down.
+        if (status_)
+        {
+            printf("Arm: shoulder absolute encoder not working; arm stopped.\n");
+        }
+
         status_ = false;
-        printf("no sensor\n");
         return;
+    }
+
+    if (!status_)
+    {
+        printf("Arm: shoulder absolute encoder OK.\n");
     }
 
     shoulderAngle_ = shoulderSensor.value();

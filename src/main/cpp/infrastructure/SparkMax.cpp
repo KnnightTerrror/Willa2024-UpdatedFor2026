@@ -1007,7 +1007,7 @@ void SparkMotor::Periodic() noexcept
     {
         ++resets_;
 
-        std::printf("SparkMax[%i] %s has reset (power loss or brownout?).\n", canId_, name_.c_str());
+        std::printf("SparkMax[%i] %s has reset (normal at power-on; otherwise power loss or brownout).\n", canId_, name_.c_str());
     }
 
     hasReset_ = hasReset;
