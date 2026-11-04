@@ -1,5 +1,10 @@
 #include "subsystems/IntakeSubsystem.h"
+
+#include <frc/smartdashboard/SmartDashboard.h>
 #include <units/voltage.h>
+
+#include <array>
+#include <string>
 
 IntakeSubsystem::IntakeSubsystem() noexcept
 {
@@ -10,7 +15,7 @@ IntakeSubsystem::IntakeSubsystem() noexcept
         {"kIdleMode", uint{0}},
         {"kRampRate", double{0.1}},
         {"kSmartCurrentStallLimit", uint{25}}, // Amps
-        {"kSmartCurrentFreeLimit", uint{10}},  // Amps
+        {"kSmartCurrentFreeLimit", uint{25}},  // Amps
     };
 
     // neos
@@ -80,6 +85,62 @@ void IntakeSubsystem::Periodic() noexcept
     m_shooter2Motor->Periodic();
     m_climber1Motor->Periodic();
     m_climber2Motor->Periodic();
+
+    PublishTelemetry();
+}
+
+// Motor diagnostics, under Intake/ on the dashboard (SmartDashboard), 10 times
+// a second.  For each motor: Volts (applied to the motor), Current (A), Speed
+// (RPM), Bus Volts (battery voltage at the motor controller), Temp (C), and
+// Status (motor controller present, configured and without faults).
+void IntakeSubsystem::PublishTelemetry() noexcept
+{
+    if (++m_telemetryCounter < 5)
+    {
+        return;
+    }
+
+    m_telemetryCounter = 0;
+
+    struct Keys
+    {
+        std::string volts, current, speed, busVolts, temperature, status;
+    };
+
+    static const std::array<std::string, 6> names{"Intake", "Trigger", "Shooter1", "Shooter2", "Climber1", "Climber2"};
+
+    static const std::array<Keys, 6> keys = []() -> std::array<Keys, 6>
+    {
+        std::array<Keys, 6> result;
+
+        for (std::size_t i = 0; i < names.size(); ++i)
+        {
+            const std::string prefix = "Intake/" + names[i] + "/";
+
+            result[i] = Keys{prefix + "Volts", prefix + "Current (A)", prefix + "Speed (RPM)",
+                             prefix + "Bus Volts", prefix + "Temp (C)", prefix + "Status"};
+        }
+
+        return result;
+    }();
+
+    const std::array<SmartMotorBase *, 6> motors{
+        m_intakeMotor.get(),
+        m_triggerMotor.get(),
+        m_shooter1Motor.get(),
+        m_shooter2Motor.get(),
+        m_climber1Motor.get(),
+        m_climber2Motor.get()};
+
+    for (std::size_t i = 0; i < motors.size(); ++i)
+    {
+        frc::SmartDashboard::PutNumber(keys[i].volts, motors[i]->GetVoltage().value());
+        frc::SmartDashboard::PutNumber(keys[i].current, motors[i]->GetCurrent().value());
+        frc::SmartDashboard::PutNumber(keys[i].speed, motors[i]->GetVelocityRaw());
+        frc::SmartDashboard::PutNumber(keys[i].busVolts, motors[i]->GetBusVoltage().value());
+        frc::SmartDashboard::PutNumber(keys[i].temperature, motors[i]->GetTemperature());
+        frc::SmartDashboard::PutBoolean(keys[i].status, motors[i]->GetStatus());
+    }
 }
 
 void IntakeSubsystem::TestInit() noexcept {}
@@ -103,13 +164,14 @@ void IntakeSubsystem::Default(const double percent) noexcept
 // bottom
 void IntakeSubsystem::RunIntake() noexcept
 {
-    m_intakeMotor->SetVoltage(10.0_V);
+    m_intakeMotor->SetVoltage(12.0_V);
 
     m_triggerMotor->Stop();
     m_climber1Motor->Stop();
     m_climber2Motor->Stop();
-    m_shooter1Motor->Stop();
-    m_shooter2Motor->Stop();
+    // Don't stop the shooter, so it can be spun up while intaking.
+    // m_shooter1Motor->Stop();
+    // m_shooter2Motor->Stop();
 }
 
 void IntakeSubsystem::StopIntake() noexcept

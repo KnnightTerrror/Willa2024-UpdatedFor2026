@@ -175,6 +175,12 @@ public:
 
     virtual units::ampere_t GetCurrent() noexcept = 0;
 
+    // Supply (battery) voltage at the motor controller, and motor temperature
+    // (degrees Celsius); for diagnostics.
+    virtual units::volt_t GetBusVoltage() noexcept = 0;
+
+    virtual double GetTemperature() noexcept = 0;
+
     // Used to establish zero position.
     virtual void SpecifyPosition(const double position) noexcept = 0;
 
@@ -322,6 +328,16 @@ public:
     units::ampere_t GetCurrent() noexcept override
     {
         return base_.GetCurrent();
+    }
+
+    units::volt_t GetBusVoltage() noexcept override
+    {
+        return base_.GetBusVoltage();
+    }
+
+    double GetTemperature() noexcept override
+    {
+        return base_.GetTemperature();
     }
 
     void SpecifyPosition(const Position_t position) noexcept

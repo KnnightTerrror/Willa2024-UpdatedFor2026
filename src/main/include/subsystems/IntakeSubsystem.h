@@ -57,6 +57,11 @@ public:
   void ReverseClimb2() noexcept;
 
 private:
+  // Motor diagnostics on the dashboard (Intake/...).
+  void PublishTelemetry() noexcept;
+
+  int m_telemetryCounter{0};
+
   std::unique_ptr<SmartMotorBase> m_intakeMotor;
   std::unique_ptr<SmartMotorBase> m_shooter1Motor;
   std::unique_ptr<SmartMotorBase> m_shooter2Motor;

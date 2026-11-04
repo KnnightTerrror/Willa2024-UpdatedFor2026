@@ -92,6 +92,10 @@ namespace
 
         units::ampere_t GetCurrent() noexcept override;
 
+        units::volt_t GetBusVoltage() noexcept override;
+
+        double GetTemperature() noexcept override;
+
         void SpecifyPosition(const double position) noexcept override;
 
         void SeekPosition(const double position) noexcept override;
@@ -1219,6 +1223,26 @@ units::ampere_t SparkMotor::GetCurrent() noexcept
              { if (motor_) { current = motor_->GetOutputCurrent(); } });
 
     return units::ampere_t{current};
+}
+
+units::volt_t SparkMotor::GetBusVoltage() noexcept
+{
+    double voltage = 0.0;
+
+    DoSafely("GetBusVoltage", [&]() -> void
+             { if (motor_) { voltage = motor_->GetBusVoltage(); } });
+
+    return units::volt_t{voltage};
+}
+
+double SparkMotor::GetTemperature() noexcept
+{
+    double temperature = 0.0;
+
+    DoSafely("GetMotorTemperature", [&]() -> void
+             { if (motor_) { temperature = motor_->GetMotorTemperature(); } });
+
+    return temperature;
 }
 
 // Note that any error is tracked, but is not propagated from this context.
