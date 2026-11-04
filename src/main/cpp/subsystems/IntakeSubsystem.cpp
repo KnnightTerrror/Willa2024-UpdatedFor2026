@@ -24,8 +24,11 @@ IntakeSubsystem::IntakeSubsystem() noexcept
         // {"kSoftLimitRev", double{0.0}},
     };
 
+    // The 2024 code set a 1 A stall current limit for the intake, which is far
+    // too low for the intake to start turning (a motor starting from rest draws
+    // stall current).  Use the same NEO 550 limit as the trigger.
     const SmartMotorBase::ConfigMap intakeConfig = {
-        {"kSmartCurrentStallLimit", uint{1}}, // Amps
+        {"kSmartCurrentStallLimit", uint{25}}, // Amps
     };
 
     const SmartMotorBase::ConfigMap flexConfig = {
