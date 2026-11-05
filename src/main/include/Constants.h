@@ -140,8 +140,8 @@ namespace nonDrive
 
     constexpr int kShooter1MotorCanID = 12;
     constexpr int kShooter2MotorCanID = 13;
-    constexpr bool kShooter1MotorInverted = true;
-    constexpr bool kShooter2MotorInverted = false;
+    constexpr bool kShooter1MotorInverted = false; // Flipped for 2026 (shooter was spinning backward)
+    constexpr bool kShooter2MotorInverted = true;  // Flipped for 2026 (shooter was spinning backward)
 
     constexpr int kClimber1MotorCanID = 14;
     constexpr int kClimber2MotorCanID = 15;
