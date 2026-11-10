@@ -6,6 +6,8 @@
 #include "RobotContainer.h"
 
 #include <frc/DriverStation.h>
+#include <frc/GenericHID.h>
+#include <frc/Timer.h>
 #include <frc/RobotController.h>
 #include <frc/geometry/Pose2d.h>
 #include <frc/smartdashboard/SmartDashboard.h>
@@ -19,6 +21,8 @@
 #include <frc2/command/InstantCommand.h>
 #include <frc2/command/RunCommand.h>
 
+#include <algorithm>
+#include <units/math.h>
 #include <memory>
 #include <cmath>
 #include <cstdio>
@@ -377,6 +381,95 @@ void RobotContainer::ConfigureBindings() noexcept
                                                           { arm_.Stow(); },
                                                           {&arm_})
                                          .ToPtr());
+
+  // AprilTag aiming, while held (see AimPeriodic()).
+  m_buttonBoard.Button(buttonBoard::kAim).WhileTrue(AimCommandFactory(this));
+}
+
+// While the aim button is held, this replaces the normal drive command.  It
+// only requires the drive subsystem, so the intake/trigger buttons (and the
+// arm buttons) still work, and pressing them does not stop aiming.
+frc2::CommandPtr RobotContainer::AimCommandFactory(RobotContainer *container) noexcept
+{
+  return frc2::RunCommand([container]() -> void
+                          { container->AimPeriodic(); },
+                          {&container->m_driveSubsystem})
+      .ToPtr()
+      .FinallyDo([container](bool) -> void
+                 { container->AimEnd(); });
+}
+
+void RobotContainer::AimPeriodic() noexcept
+{
+  // The driver still drives and strafes; rotation is from the driver only if
+  // the target is not in view.
+  const auto controls = GetDriveTeleopControls();
+  double rotation = std::get<2>(controls);
+  bool aligned = false;
+
+  if (m_vision.HasTarget())
+  {
+    // Turn so the target is centered in the camera's view.
+    const units::degree_t yaw = m_vision.GetYaw();
+
+    rotation = std::clamp(-yaw.value() * vision::kAimTurnP * vision::kAimTurnDirection,
+                          -vision::kAimMaxTurn, +vision::kAimMaxTurn);
+    aligned = units::math::abs(yaw) < vision::kAimTolerance;
+
+    // Arm angle and shooter voltage for this distance.
+    const vision::ShotSetting shot = m_vision.GetShotSetting();
+
+    // Only move the arm when the angle changes noticeably; distance readings
+    // jitter a little, and a constantly moving goal would keep the arm from
+    // ever being "in position".
+    if (!m_aimArmSet || units::math::abs(shot.armAngle - m_aimArmAngle) > 0.5_deg)
+    {
+      m_aimArmSet = true;
+      m_aimArmAngle = shot.armAngle;
+      arm_.SetShoulderAngle(m_aimArmAngle);
+    }
+
+    // Only send the shooter a new voltage when it changes noticeably.
+    if (m_aimShooterVoltage == 0.0_V || units::math::abs(shot.shooterVoltage - m_aimShooterVoltage) > 0.25_V)
+    {
+      if (m_aimShooterVoltage == 0.0_V)
+      {
+        m_aimShooterStarted = frc::Timer::GetFPGATimestamp();
+      }
+
+      m_aimShooterVoltage = shot.shooterVoltage;
+      IntakeSubsystem_.SetShooterPower(m_aimShooterVoltage);
+    }
+  }
+
+  m_driveSubsystem.Drive(
+      std::get<0>(controls) * physical::kMaxDriveSpeed,
+      std::get<1>(controls) * physical::kMaxDriveSpeed,
+      rotation * physical::kMaxTurnRate,
+      std::get<3>(controls));
+
+  // Ready to shoot: rumble the controller (then pull the right trigger).
+  const bool ready = aligned &&
+                     arm_.InPosition() &&
+                     m_aimShooterVoltage != 0.0_V &&
+                     frc::Timer::GetFPGATimestamp() - m_aimShooterStarted >= vision::kShooterSpinUpTime;
+
+  m_vision.SetReady(ready);
+  m_xbox.GetHID().SetRumble(frc::GenericHID::RumbleType::kBothRumble, ready ? 0.5 : 0.0);
+}
+
+void RobotContainer::AimEnd() noexcept
+{
+  if (m_aimShooterVoltage != 0.0_V)
+  {
+    IntakeSubsystem_.StopOotas();
+  }
+
+  m_aimShooterVoltage = 0.0_V;
+  m_aimArmSet = false;
+
+  m_vision.SetReady(false);
+  m_xbox.GetHID().SetRumble(frc::GenericHID::RumbleType::kBothRumble, 0.0);
 }
 
 std::optional<frc2::CommandPtr> RobotContainer::GetAutonomousCommand() noexcept

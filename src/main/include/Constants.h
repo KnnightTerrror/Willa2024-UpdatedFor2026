@@ -9,6 +9,9 @@
 #include <units/torque.h>
 #include <units/base.h>
 #include <units/time.h>
+#include <units/voltage.h>
+
+#include <array>
 
 namespace physical
 {
@@ -178,8 +181,8 @@ namespace buttonBoard
     constexpr int kArmSpeakerClose = 16; // Arm to close speaker shot
     constexpr int kArmSpeakerFar = 17;  // Arm to far speaker shot
     constexpr int kArmStow = 18;        // Arm to stowed position
-    // Button 19 is not used.
-    constexpr int kAutoSelect = 20;     // On/held when auto starts: Left Side auto (else Right Side)
+    constexpr int kAutoSelect = 19;     // On/held when auto starts: Left Side auto (else Right Side)
+    constexpr int kAim = 20;            // Hold: aim at the AprilTag target (see vision below)
 }
 
 namespace arm
@@ -207,4 +210,60 @@ namespace arm
     // constexpr units::length::meter_t upperArmLength = 28.0_in;
     // constexpr units::mass::kilogram_t pointMass = 2.0_lb;
 
+}
+
+// AprilTag aiming (PhotonVision); hold button board kAim.  The robot turns to
+// face the target tag (the driver still drives/strafes), the arm and shooter
+// are set from the shot table, and the controller rumbles when ready to shoot
+// (then pull the right trigger to feed).
+namespace vision
+{
+    // Camera name, exactly as set in the PhotonVision web interface.
+    constexpr const char *kCameraName = "ShooterCamera";
+
+    // Target AprilTag for each alliance (if the alliance is not known, either).
+    constexpr int kBlueTargetTag = 7;
+    constexpr int kRedTargetTag = 4;
+
+    // A target not seen for this long is treated as lost.
+    constexpr units::second_t kTargetTimeout = 0.25_s;
+
+    // Turning toward the tag: turn rate (as a fraction of the maximum turn
+    // rate) per degree that the tag is off-center, and the most to use.  If the
+    // robot turns AWAY from the tag (e.g. the camera faces backward), change
+    // kAimTurnDirection to -1.0.
+    constexpr double kAimTurnP = 0.01;
+    constexpr double kAimMaxTurn = 0.3;
+    constexpr double kAimTurnDirection = 1.0;
+
+    // "Ready" (controller rumbles) when the tag is within this many degrees of
+    // center, the arm is in position, and the shooter has been running this
+    // long.
+    constexpr units::degree_t kAimTolerance = 2.0_deg;
+    constexpr units::second_t kShooterSpinUpTime = 1.0_s;
+
+    // The arm angle from the shot table is kept within this range.
+    constexpr units::degree_t kMinArmAngle = 12.0_deg;
+    constexpr units::degree_t kMaxArmAngle = 86.0_deg;
+
+    // Shot table: for each distance (camera to tag, as shown on the dashboard
+    // as Vision/Distance (m)), the arm angle and shooter voltage that score.
+    // In between, values are interpolated; outside, the nearest entry is used.
+    // Keep the entries in order of increasing distance; add as many as needed.
+    //
+    // **** PLACEHOLDERS: these use the existing close (36 deg, 7 V) and far
+    // (53 deg, 12 V) presets at guessed distances.  Replace them with values
+    // measured on the robot: shoot from several distances, find the arm angle
+    // and shooter voltage that score, and record Vision/Distance (m).
+    struct ShotSetting
+    {
+        units::meter_t distance;
+        units::degree_t armAngle;
+        units::volt_t shooterVoltage;
+    };
+
+    inline constexpr std::array kShotTable{
+        ShotSetting{1.0_m, 36.0_deg, 7.0_V},
+        ShotSetting{3.0_m, 53.0_deg, 12.0_V},
+    };
 }

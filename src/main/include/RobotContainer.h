@@ -14,6 +14,7 @@
 #include "subsystems/Infrastructure.h"
 #include "subsystems/IntakeSubsystem.h"
 #include "subsystems/ArmSubsystem.h"
+#include "subsystems/VisionSubsystem.h"
 
 #include <bitset>
 #include <memory>
@@ -55,6 +56,11 @@ private:
   static frc2::CommandPtr DriveCommandFactory(RobotContainer *container) noexcept;
   static frc2::CommandPtr PointCommandFactory(RobotContainer *container) noexcept;
 
+  // AprilTag aiming, while the button board kAim button is held.
+  static frc2::CommandPtr AimCommandFactory(RobotContainer *container) noexcept;
+  void AimPeriodic() noexcept;
+  void AimEnd() noexcept;
+
   std::tuple<double, double, double, bool> GetDriveTeleopControls() noexcept;
 
   void ConfigureBindings() noexcept;
@@ -77,6 +83,16 @@ private:
   InfrastructureSubsystem m_infrastructureSubsystem;
   IntakeSubsystem IntakeSubsystem_;
   ArmSubsystem arm_;
+  VisionSubsystem m_vision;
+
+  // Aiming state: shooter voltage currently commanded (0 if off), and when
+  // the shooter was started (FPGA time, seconds).
+  units::volt_t m_aimShooterVoltage{0.0};
+  units::second_t m_aimShooterStarted{0.0};
+
+  // Aiming state: arm angle currently commanded (if m_aimArmSet).
+  bool m_aimArmSet{false};
+  units::degree_t m_aimArmAngle{0.0};
 
   frc2::CommandXboxController m_xbox{0};
   frc2::CommandGenericHID m_buttonBoard{1};

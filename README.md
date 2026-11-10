@@ -21,7 +21,7 @@ Use the **2026 WPILib VS Code** to build and deploy.  Use "WPILib: Manage Vendor
 * **navX.**  The navX library is now distributed by Studica: `studica::AHRS` (`<studica/AHRS.h>`), constructed with `NavXComType::kMXP_SPI`.
 * **WPILib command-based controllers.**  `CommandXboxController`/`CommandGenericHID` no longer derive from `GenericHID`, so the `JoystickButton`/`POVButton` bindings now use `m_xbox.Start()`, `m_xbox.Back()`, `m_xbox.POVUp()`, `m_xbox.POVDown()`, and the button board's lights/axis counts use `m_buttonBoard.GetHID()`.
 * **WPILib deprecations.**  `SwerveModuleState::Optimize()` (now an instance method), `CommandPtr::Schedule()` (now `CommandScheduler::GetInstance().Schedule()`), and the SysId `Config` constructor were updated.
-* **PathPlanner.**  Removed.  The 2024 PathPlanner setup was already commented out and no autos used it; the timed autos (button board button 20 selects Left/Right) are unchanged.  To add PathPlanner back, install PathplannerLib 2026 with "WPILib: Manage Vendor Libraries" (this needs an internet connection that can reach `3015rangerrobotics.github.io`), then call `AutoBuilder::configure()` from the drive subsystem; `DriveSubsystem::GetSpeed()`, `Drive(ChassisSpeeds)`, `GetPose()` and `ResetOdometry()` provide what it needs.
+* **PathPlanner.**  Removed.  The 2024 PathPlanner setup was already commented out and no autos used it; the timed autos (button board button 19 selects Left/Right) are unchanged.  To add PathPlanner back, install PathplannerLib 2026 with "WPILib: Manage Vendor Libraries" (this needs an internet connection that can reach `3015rangerrobotics.github.io`), then call `AutoBuilder::configure()` from the drive subsystem; `DriveSubsystem::GetSpeed()`, `Drive(ChassisSpeeds)`, `GetPose()` and `ResetOdometry()` provide what it needs.
 * **Test Mode config burning.**  `RobotContainer::TestExit()` is called on entry to every mode; it now only does its work (including saving motor controller config to flash) if Test Mode actually ran.  Before, it tried to burn flash at the start of every Autonomous and Teleop.  REVLib 2026 refuses to do that while enabled.
 
 * **Motor controller settings are reset on startup.**  When the code configures a SPARK MAX/FLEX while the robot is disabled, it first resets the controller to factory defaults, so nothing left over from other code (inversion, follower mode, current limits, ...) can affect it.  This also means settings made only in the REV Hardware Client (or saved from Test Mode PID tuning) are not kept across reboots; everything comes from the code, including the closed-loop PID gains in `Constants.h` (normal driving uses open-loop voltage and roboRIO steering PID; the SPARK closed-loop gains are used by the Test Mode drive-distance patterns).  The config is saved to the controller's flash once at startup, while disabled (as REV recommends), so it comes back correctly after a brownout.  If a controller could not be configured at startup (not powered, CAN problem), the console shows `config: FAIL` and the config is retried while disabled (every 5 seconds, up to 10 times, and again if the controller shows up later); a controller that still has not been configured when the robot is enabled runs on whatever settings it had, so check the console for `FAIL` before driving.
@@ -101,10 +101,30 @@ The robot starts in robot-oriented drive; press Back (with the robot facing down
 | 16 | Arm to close speaker shot (36°) |
 | 17 | Arm to far speaker shot (53°) |
 | 18 | Arm to stow (17°) |
-| 19 | Not used |
-| 20 | Auto selector: on/held when Autonomous starts = Left Side auto, otherwise Right Side auto |
+| 19 | Auto selector: on/held when Autonomous starts = Left Side auto, otherwise Right Side auto |
+| 20 (hold) | **AprilTag aim** (see below): turns to the target, sets the arm and shooter; controller rumbles when ready, then pull the right trigger |
 
 To shoot: set the arm angle, hold 13 (or 14) to spin up the shooter, then pull the right trigger to feed.  The button numbers are in the `buttonBoard` namespace in `Constants.h`.
+
+## AprilTag aiming (PhotonVision)
+
+Hold button board **20**: the robot turns to face the target AprilTag (tag **7** on the blue alliance, **4** on red; either if the alliance is not known), the arm angle and shooter power are set from the shot table for the measured distance, and the Xbox controller **rumbles when ready** (facing the tag, arm in position, shooter spun up).  Then pull the **right trigger** to feed and shoot.  While aiming, the left stick still drives and strafes (the right stick's rotation is used only if the tag is not in view).  Releasing 20 stops the shooter.
+
+Code: `subsystems/VisionSubsystem.*` (camera, tag selection, shot table lookup), `RobotContainer::AimPeriodic()` (aiming), settings in the `vision` namespace in `Constants.h`.
+
+### Setting up
+1. **PhotonVision coprocessor:** install PhotonVision **v2026.3.4** (it must match the PhotonLib version in `vendordeps/photonlib.json`; or update both together with "WPILib: Manage Vendor Libraries").  Name the camera **`ShooterCamera`** in the PhotonVision web interface (or change `vision::kCameraName`).
+2. **Calibrate the camera** in PhotonVision (Cameras tab), at the resolution you will use, and use an **AprilTag pipeline (36h11) with 3D mode on**; the distance comes from the tag's 3D position.
+3. Mount the camera on the **frame** (not the arm), facing the same way as the shooter.
+4. **Check the turn direction:** hold 20 with the tag in view and the robot on the floor.  If the robot turns *away* from the tag, set `vision::kAimTurnDirection` to `-1.0`.  If it turns too slowly or overshoots, adjust `vision::kAimTurnP`.
+
+### Filling in the shot table
+The table in `Constants.h` (`vision::kShotTable`) starts with **placeholders**.  To fill it in:
+1. Put the robot at a shooting position, with the tag in view; read **Vision/Distance (m)** on the dashboard.
+2. Use the arm buttons/D-pad and shooter buttons to find the arm angle and shooter voltage that score from there.
+3. Add `ShotSetting{distance, angle, voltage}` to the table; repeat at several distances (e.g. every 0.5 m), keeping the entries in order of increasing distance.
+
+Between entries, the arm angle and shooter voltage are interpolated; beyond the ends, the nearest entry is used.  The arm angle is limited to `vision::kMinArmAngle` - `kMaxArmAngle`.  The dashboard shows **Vision/Has Target**, **Tag ID**, **Yaw (deg)**, **Distance (m)**, the table's **Arm Angle (deg)** and **Shooter Volts** for the current distance, and **Ready**.
 
 ## Features
 

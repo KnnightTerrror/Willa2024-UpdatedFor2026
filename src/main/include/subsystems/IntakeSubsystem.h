@@ -45,6 +45,10 @@ public:
 
   void FullOotas() noexcept;    // half power
   void Ootas() noexcept;        // shootspeaker / run speakers
+
+  // Run the shooter at the given voltage (e.g. from the aiming shot table).
+  // Goes through the shooter protection, like the functions above.
+  void SetShooterPower(const units::volt_t voltage) noexcept { SetShooterVoltage(voltage); }
   void ReverseOotas() noexcept; // reverses trigger and ootaassssszzz
   void StopOotas() noexcept;
   void StopOotasandBodyT() noexcept;
