@@ -8,6 +8,7 @@
 #include <units/mass.h>
 #include <units/torque.h>
 #include <units/base.h>
+#include <units/time.h>
 
 namespace physical
 {
@@ -142,6 +143,20 @@ namespace nonDrive
     constexpr int kShooter2MotorCanID = 13;
     constexpr bool kShooter1MotorInverted = false; // Flipped for 2026 (shooter was spinning backward)
     constexpr bool kShooter2MotorInverted = true;  // Flipped for 2026 (shooter was spinning backward)
+
+    // Shooter (SPARK Flex / Vortex) current limits, applied on the motor
+    // controllers.  The smart current limit goes from the stall limit (motor
+    // stopped) down to the free limit (motor at speed); the secondary limit is
+    // a hard cutoff, as a backup.
+    constexpr unsigned int kShooterStallCurrentLimit = 60;  // Amps
+    constexpr unsigned int kShooterFreeCurrentLimit = 40;   // Amps
+    constexpr double kShooterSecondaryCurrentLimit = 80.0;  // Amps
+
+    // Shooter protection in code: a shooter motor drawing more than this, for
+    // longer than this, is stopped until the robot is disabled.  With the
+    // limits above in effect, this should never happen.
+    constexpr double kShooterTripCurrent = 70.0;            // Amps
+    constexpr units::second_t kShooterTripTime = 0.25_s;
 
     constexpr int kClimber1MotorCanID = 14;
     constexpr int kClimber2MotorCanID = 15;

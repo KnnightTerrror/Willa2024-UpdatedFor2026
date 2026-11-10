@@ -1,7 +1,12 @@
 #include "subsystems/IntakeSubsystem.h"
 
+#include <frc/DriverStation.h>
+#include <frc/RobotController.h>
 #include <frc/smartdashboard/SmartDashboard.h>
 #include <units/voltage.h>
+
+#include <cmath>
+#include <cstdio>
 
 #include <array>
 #include <string>
@@ -40,7 +45,9 @@ IntakeSubsystem::IntakeSubsystem() noexcept
         {"kStatus1", uint{250}},
         {"kStatus2", uint{250}},
         {"kRampRate", double{0.5}},
-        {"kSmartCurrentStallLimit", uint{60}}, // Amps
+        {"kSmartCurrentStallLimit", uint{nonDrive::kShooterStallCurrentLimit}},
+        {"kSmartCurrentFreeLimit", uint{nonDrive::kShooterFreeCurrentLimit}},
+        {"kCurrentChop", double{nonDrive::kShooterSecondaryCurrentLimit}},
         // {"kSoftLimitFwd", double{0.0}},
         // {"kSoftLimitRev", double{0.0}},
     };
@@ -86,7 +93,104 @@ void IntakeSubsystem::Periodic() noexcept
     m_climber1Motor->Periodic();
     m_climber2Motor->Periodic();
 
+    MonitorShooter();
     PublishTelemetry();
+}
+
+// Shooter protection.  The current limits are set on the motor controllers
+// (see the constructor), but these only take effect if the controller actually
+// received its config, and a damaged motor or controller can still draw far
+// too much.  So, in code: (1) a shooter motor whose config was not confirmed is
+// not run, and (2) a shooter motor drawing more than kShooterTripCurrent for
+// longer than kShooterTripTime is stopped, until the robot is disabled.
+void IntakeSubsystem::MonitorShooter() noexcept
+{
+    const std::array<SmartMotorBase *, 2> motors{m_shooter1Motor.get(), m_shooter2Motor.get()};
+    const std::array<const char *, 2> names{"Shooter1", "Shooter2"};
+
+    // Disabling the robot clears any trip, so the next enable tries again.
+    if (frc::DriverStation::IsDisabled())
+    {
+        for (std::size_t i = 0; i < motors.size(); ++i)
+        {
+            if (m_shooterTripped[i])
+            {
+                std::printf("%s current trip cleared (robot disabled).\n", names[i]);
+            }
+
+            m_shooterTripped[i] = false;
+            m_shooterOverCurrentSince[i] = 0;
+        }
+
+        return;
+    }
+
+    const uint64_t FPGATime = frc::RobotController::GetFPGATime();
+    const uint64_t tripTime = static_cast<uint64_t>(nonDrive::kShooterTripTime.value() * 1000000.0);
+
+    for (std::size_t i = 0; i < motors.size(); ++i)
+    {
+        const double current = std::abs(motors[i]->GetCurrent().value());
+
+        if (current < nonDrive::kShooterTripCurrent)
+        {
+            m_shooterOverCurrentSince[i] = 0;
+        }
+        else if (m_shooterOverCurrentSince[i] == 0)
+        {
+            m_shooterOverCurrentSince[i] = FPGATime;
+        }
+        else if (!m_shooterTripped[i] && FPGATime - m_shooterOverCurrentSince[i] > tripTime)
+        {
+            m_shooterTripped[i] = true;
+            motors[i]->Stop();
+
+            std::printf("**** %s STOPPED: drawing %.0f A (over %.0f A for %.2f s).  It stays off until the robot "
+                        "is disabled.  Check the motor, its SPARK Flex, and the shooter mechanism.\n",
+                        names[i], current, nonDrive::kShooterTripCurrent, nonDrive::kShooterTripTime.value());
+        }
+    }
+}
+
+// Why a shooter motor is not being run (empty if it can run).
+std::string IntakeSubsystem::ShooterBlockedReason(const std::size_t index) noexcept
+{
+    SmartMotorBase *const motor = index == 0 ? m_shooter1Motor.get() : m_shooter2Motor.get();
+
+    if (m_shooterTripped[index])
+    {
+        return "Current trip (until disabled)";
+    }
+
+    if (!motor->IsConfigured())
+    {
+        return "Config not confirmed (current limits not in effect)";
+    }
+
+    return "";
+}
+
+// All shooter output goes through here, so the protection above is enforced.
+void IntakeSubsystem::SetShooterVoltage(const units::volt_t voltage) noexcept
+{
+    const std::array<SmartMotorBase *, 2> motors{m_shooter1Motor.get(), m_shooter2Motor.get()};
+    const std::array<const char *, 2> names{"Shooter1", "Shooter2"};
+
+    for (std::size_t i = 0; i < motors.size(); ++i)
+    {
+        const std::string reason = ShooterBlockedReason(i);
+
+        if (reason.empty())
+        {
+            motors[i]->SetVoltage(voltage);
+        }
+        else
+        {
+            motors[i]->Stop();
+
+            std::printf("%s not run: %s.\n", names[i], reason.c_str());
+        }
+    }
 }
 
 // Motor diagnostics, under Intake/ on the dashboard (SmartDashboard), 10 times
@@ -141,6 +245,10 @@ void IntakeSubsystem::PublishTelemetry() noexcept
         frc::SmartDashboard::PutNumber(keys[i].temperature, motors[i]->GetTemperature());
         frc::SmartDashboard::PutBoolean(keys[i].status, motors[i]->GetStatus());
     }
+
+    // Shooter protection (see MonitorShooter()); empty means OK.
+    frc::SmartDashboard::PutString("Intake/Shooter1/Blocked", ShooterBlockedReason(0));
+    frc::SmartDashboard::PutString("Intake/Shooter2/Blocked", ShooterBlockedReason(1));
 }
 
 void IntakeSubsystem::TestInit() noexcept {}
@@ -201,14 +309,12 @@ void IntakeSubsystem::ReverseIntake() noexcept
 
 void IntakeSubsystem::FullOotas() noexcept
 {
-    m_shooter1Motor->SetVoltage(12.0_V);
-    m_shooter2Motor->SetVoltage(12.0_V);
+    SetShooterVoltage(12.0_V);
 }
 
 void IntakeSubsystem::Ootas() noexcept
 {
-    m_shooter1Motor->SetVoltage(7.0_V);
-    m_shooter2Motor->SetVoltage(7.0_V);
+    SetShooterVoltage(7.0_V);
 
     // if (counter <= 80)
     //{
@@ -218,8 +324,7 @@ void IntakeSubsystem::Ootas() noexcept
 void IntakeSubsystem::ReverseOotas() noexcept
 {
     m_triggerMotor->SetVoltage(-12.0_V);
-    m_shooter1Motor->SetVoltage(-6.0_V);
-    m_shooter2Motor->SetVoltage(-6.0_V);
+    SetShooterVoltage(-6.0_V);
 }
 
 void IntakeSubsystem::StopOotas() noexcept

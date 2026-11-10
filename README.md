@@ -28,6 +28,8 @@ Use the **2026 WPILib VS Code** to build and deploy.  Use "WPILib: Manage Vendor
 * **Robot loop speed.**  The 2024 code printed to the console every 20 ms (note sensor, arm status, with an arm status string that grew without limit).  These now print only when something changes, which matters a lot for how responsive the robot is.
 * **Arm on enable.**  While disabled, the arm's motion profile is held at the arm's actual position, so when the robot is enabled the arm moves smoothly to its target instead of lurching.
 
+* **Shooter current limits are enforced.**  The shooter SPARK Flexes get a smart current limit (60 A stopped, tapering to 40 A at speed) and an 80 A secondary (hard) limit.  The code only runs a shooter motor once its controller has confirmed it received that config, and stops a shooter motor that still draws over 70 A for 0.25 s (until the robot is disabled).  If a shooter motor will not run, check **Intake/Shooter1/Blocked** and **Intake/Shooter2/Blocked** on the dashboard and the console.  The limits are in `Constants.h` (`kShooter...CurrentLimit`, `kShooterTrip...`).
+
 ## Before running on the robot
 
 1. Update all SPARK MAX/FLEX firmware with the REV Hardware Client (REVLib 2026 expects current firmware).

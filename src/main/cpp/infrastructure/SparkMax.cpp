@@ -62,6 +62,8 @@ namespace
 
         bool GetStatus() noexcept override;
 
+        bool IsConfigured() noexcept override { return motor_ && configGood_; }
+
         void Periodic() noexcept override;
 
         void ShuffleboardCreate(frc::ShuffleboardContainer &container,

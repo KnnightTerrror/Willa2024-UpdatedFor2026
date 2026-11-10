@@ -139,6 +139,10 @@ public:
 
     virtual bool GetStatus() noexcept = 0;
 
+    // True only once the motor controller has confirmed it received the
+    // current config (so, e.g., its current limits are in effect).
+    virtual bool IsConfigured() noexcept = 0;
+
     enum class IdleMode
     {
         kCoast = 0,
@@ -267,6 +271,11 @@ public:
     bool GetStatus() noexcept override
     {
         return base_.GetStatus();
+    }
+
+    bool IsConfigured() noexcept override
+    {
+        return base_.IsConfigured();
     }
 
     void SetIdleMode(const IdleMode mode) noexcept override

@@ -16,6 +16,9 @@
 #include <units/length.h>
 #include <units/voltage.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -61,6 +64,14 @@ private:
   void PublishTelemetry() noexcept;
 
   int m_telemetryCounter{0};
+
+  // Shooter protection (index 0 = Shooter1, 1 = Shooter2).
+  void MonitorShooter() noexcept;
+  std::string ShooterBlockedReason(const std::size_t index) noexcept;
+  void SetShooterVoltage(const units::volt_t voltage) noexcept;
+
+  std::array<bool, 2> m_shooterTripped{false, false};
+  std::array<uint64_t, 2> m_shooterOverCurrentSince{0, 0};
 
   std::unique_ptr<SmartMotorBase> m_intakeMotor;
   std::unique_ptr<SmartMotorBase> m_shooter1Motor;
